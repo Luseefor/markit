@@ -17,3 +17,5 @@ node_modules/
 /web/licenses/
 /platforms/android/markit/src/main/assets/markit-licenses/
 /platforms/ios/Sources/Markit/Licenses/
+/benchmarks/artifacts/
+/benchmarks/__pycache__/

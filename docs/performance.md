@@ -13,7 +13,7 @@ An append after a 104,411-byte history averaged 13.5 µs across 100 runs. It rec
 
 The default highlighter is a linear tokenizer. Full Sublime grammars are optional because their first-use regex compilation caused multi-second startup in the browser during development. The default demo's observed startup round trip was about 49-121 ms on localhost, including worker/Wasm startup and mathematical rendering. Those observations are not a controlled browser benchmark.
 
-These are single-machine observations, not platform guarantees. They exclude UIKit/Android layout and drawing, native JSON decoding, network delivery, and end-to-end frame timing. There is no benchmark comparison against Ace, Prism, or another renderer. Buffer reuse varied between cases; its primary contract is allocation reuse.
+These are single-machine observations, not platform guarantees. They exclude UIKit/Android layout and drawing, native JSON decoding, network delivery, and end-to-end frame timing. New comparisons against Ace's Marked/Prism/KaTeX and Swift/Foundation paths are in [the comparison report](benchmark-comparison.md). They reveal slower highlighting paths as well as faster Markdown preparation. Buffer reuse varied between cases; its primary contract is allocation reuse.
 
 Settled streaming roots avoid repeated parsing during ordinary appends. An open giant paragraph/list/fence remains expensive until it settles. Late reference definitions can invalidate earlier blocks. Native code and table cells recycle within bounded viewports, while the web wrapper removes offscreen lines from large code-fence DOMs. Native frame-time validation is still pending device access.
 

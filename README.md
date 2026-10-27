@@ -98,4 +98,4 @@ The engine uses a streaming parser, half-open UTF-16 native ranges, bounded high
 cargo bench -p markit --bench throughput
 ```
 
-`check.sh` requires Playwright Chromium, installed with `cd web && npx playwright install chromium`. Swift bridge tests, Android instrumentation commands, build checks, and measured limits are documented in [validation](docs/validation.md) and [performance](docs/performance.md). Native simulator UI tests have not run in this session because Ace device controls are disabled.
+`check.sh` requires Playwright Chromium, installed with `cd web && npx playwright install chromium`. Swift bridge tests, Android instrumentation commands, build checks, and measured limits are documented in [validation](docs/validation.md) and [performance](docs/performance.md). Native simulator UI tests have not run in this session because Ace device controls are disabled. See [measured comparisons with Ace's existing libraries](docs/benchmark-comparison.md) for both faster paths and remaining highlighting performance gaps.
