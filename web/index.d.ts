@@ -3,6 +3,8 @@ export interface HighlightedCode { language: string; plain: boolean; tokens: Cod
 export interface MarkitReference { kind: 'file' | 'thread' | 'pull_request'; target: string }
 export interface MarkitOptions {
   workerURL?: URL | string;
+  /** WebGPU draws eligible large ASCII source views. Auto currently uses DOM until benchmarked. */
+  codeRendering?: 'auto' | 'dom' | 'webgpu';
   onLink?: (url: string) => void;
   onReference?: (reference: MarkitReference) => void;
   resolveImage?: (url: string, alt: string, signal: AbortSignal) => Blob | Uint8Array | null | Promise<Blob | Uint8Array | null>;

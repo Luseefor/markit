@@ -1,3 +1,5 @@
+import { GpuCodeRenderer } from './gpu-code.js';
+
 /** One in-flight render and one queued replacement keep typing ahead of parsing.
  * Parsing and highlighting always execute in the Rust WebAssembly worker. */
 export class MarkitRenderer {
@@ -5,6 +7,7 @@ export class MarkitRenderer {
   #failed = false; #running = false; #queued; #destroyed = false; #options; #code = new WeakMap();
   #html = []; #dirty = Infinity;
   #urls = new Map(); #imageJobs = new Map(); #listeners = new AbortController();
+  #gpu = new GpuCodeRenderer(); #gpuViews = new Map();
   constructor(element, options = {}) {
     this.#element = element;
     this.#options = options;
@@ -81,6 +84,9 @@ export class MarkitRenderer {
     if (this.#destroyed) return;
     while (this.#element.children.length > patch.replace_from) {
       const block = this.#element.lastElementChild;
+      for (const pre of block.querySelectorAll('pre')) {
+        this.#gpuViews.get(pre)?.destroy(); this.#gpuViews.delete(pre);
+      }
       for (const image of block.querySelectorAll('img')) {
         this.#imageJobs.get(image)?.abort(); this.#imageJobs.delete(image);
         const url = this.#urls.get(image);
@@ -104,9 +110,10 @@ export class MarkitRenderer {
   #prepareCode(section) {
     const code = section.querySelector('code');
     this.#code.set(section, code.textContent);
-    const rows = [...code.children];
+    let rows = [...code.children];
     if (rows.length <= 400) return;
     const pre = section.querySelector('pre');
+    pre.dataset.markitBackend = 'dom';
     pre.classList.add('mk-virtual-code');
     const lineHeight = 22;
     const top = document.createElement('span'); const bottom = document.createElement('span');
@@ -119,6 +126,18 @@ export class MarkitRenderer {
       code.replaceChildren(top, ...rows.slice(first, last), bottom);
     };
     pre.addEventListener('scroll', update, { passive: true }); update();
+    // Automatic GPU selection remains disabled until rendering benchmarks show
+    // a benefit. Hosts can explicitly request it for large source views.
+    if (this.#options.codeRendering === 'webgpu') {
+      queueMicrotask(() => {
+        if (this.#destroyed || !pre.isConnected) return;
+        this.#gpu.attach(pre, rows, next => { rows = next; update(); }, () => this.#gpuViews.delete(pre)).then(view => {
+          if (!view || view.disposed) return;
+          if (this.#destroyed || !pre.isConnected) view.destroy();
+          else this.#gpuViews.set(pre,view);
+        });
+      });
+    }
   }
   async #resolveImage(image) {
     image.dataset.requested = 'true';
@@ -155,6 +174,7 @@ export class MarkitRenderer {
   }
   destroy() {
     this.#destroyed = true; this.#worker.terminate(); this.#listeners.abort();
+    this.#gpu.destroy(); this.#gpuViews.clear();
     for (const pending of this.#pending.values()) pending.reject(new Error('Renderer disposed'));
     this.#pending.clear();
     this.#queued?.reject(new Error('Renderer disposed')); this.#queued = undefined;

@@ -23,5 +23,11 @@
 .markit .mk-line span { white-space:pre; } .markit .mk-line span:last-child { line-height:22px; }
 .markit .mk-diff-addition { background:#2ea04326; } .markit .mk-diff-deletion { background:#f8514926; } .markit .mk-diff-meta { color:var(--mk-muted); }
 .markit .mk-virtual-code { height:320px; } .markit .mk-spacer { display:block; }
+.markit .mk-gpu-host { position:relative; }
+.markit .mk-gpu-canvas { position:absolute; top:0; left:0; pointer-events:none; }
+.markit .mk-gpu-active { position:relative; background:transparent; }
+.markit .mk-gpu-active .mk-line { color:transparent; }
+.markit .mk-gpu-active .mk-line::selection { color:var(--mk-ink); background:Highlight; }
+.markit .mk-gpu-active code { font-variant-ligatures:none; }
 .markit .mk-math { display:inline-block; vertical-align:middle; max-width:100%; overflow-x:auto; }
 .markit .mk-math svg { display:block; max-width:none; } .markit .mk-display { display:block; padding:12px 0; }

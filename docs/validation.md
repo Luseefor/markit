@@ -8,7 +8,7 @@ Local verification on MacBook Pro Rijan, 2026-10-27:
 | Clippy, workspace/all targets/all features, warnings denied | Pass |
 | Rust workspace tests with optional grammars | 28 passed |
 | Swift tests through the linked Rust C library | 3 passed |
-| Playwright Chromium browser flows | 9 passed |
+| Playwright Chromium browser flows | 11 passed |
 | iOS arm64 device and simulator libraries / XCFramework | Build passes |
 | iOS SwiftUI/UIKit example, arm64 simulator SDK | Build passes |
 | Android arm64-v8a and x86_64 JNI shared libraries | Build passes |
@@ -16,6 +16,7 @@ Local verification on MacBook Pro Rijan, 2026-10-27:
 | Android instrumentation test APK | Build passes; 3 tests not executed |
 | Kotlin JNI declarations against exported Rust symbols | Names/signatures checked with javap and llvm-nm |
 | Android ELF load-segment alignment | 16 KiB alignment checked with llvm-readelf |
+| Hardware WebGPU flow, ordinary browser with no backend override | 1 passed locally; optional hardware suite |
 | Web package contents | npm pack dry run |
 | Desktop/390 px browser layout | Inspected; responsive overflow check passes |
 | Ace browser console | No errors observed |

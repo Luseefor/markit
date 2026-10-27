@@ -102,3 +102,30 @@ test('compact worker highlighting exactly matches legacy tokens and colors', asy
   });
   expect(results.every(result => result.equal && result.preserved)).toBe(true);
 });
+
+test('unavailable WebGPU keeps source, syntax colors, and copying on the text backend', async ({page}) => {
+  await page.evaluate(async()=>{
+    Object.defineProperty(navigator,'gpu',{value:{requestAdapter:async()=>null},configurable:true});
+    const {MarkitRenderer}=await import('/index.js');window.renderer.destroy();
+    window.renderer=new MarkitRenderer(document.querySelector('#preview'),{codeRendering:'webgpu'});
+    await window.renderer.render('```rust\n'+Array.from({length:500},(_,i)=>`let value_${i} = ${i};`).join('\n')+'\n```');
+  });
+  const pre=page.locator('pre');await expect(pre).toHaveAttribute('data-markit-backend','dom');
+  await expect(page.locator('.mk-gpu-canvas')).toHaveCount(0);
+  expect(await pre.locator('span[style*="--mk-light"]').count()).toBeGreaterThan(20);
+  await pre.evaluate(element=>{element.scrollTop=element.scrollHeight;});
+  await expect(pre).toContainText('value_499');
+});
+
+test('WebGPU requests retain Unicode shaping and diff backgrounds through text rendering', async ({page}) => {
+  const result=await page.evaluate(async()=>{
+    let requests=0;Object.defineProperty(navigator,'gpu',{value:{requestAdapter:async()=>{requests++;return null;}},configurable:true});
+    const {MarkitRenderer}=await import('/index.js');window.renderer.destroy();
+    window.renderer=new MarkitRenderer(document.querySelector('#preview'),{codeRendering:'webgpu'});
+    await window.renderer.render('```rust\n'+('let café = "😀";\n'.repeat(500))+'```');
+    const unicode=document.querySelector('pre').textContent.includes('café = "😀"');
+    await window.renderer.render('```diff\n'+('-old\n+new\n'.repeat(300))+'```');
+    return {unicode,diff:!!document.querySelector('.mk-diff-addition'),requests,canvas:!!document.querySelector('.mk-gpu-canvas')};
+  });
+  expect(result).toEqual({unicode:true,diff:true,requests:0,canvas:false});
+});

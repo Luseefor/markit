@@ -99,3 +99,5 @@ cargo bench -p markit --bench throughput
 ```
 
 `check.sh` requires Playwright Chromium, installed with `cd web && npx playwright install chromium`. Swift bridge tests, Android instrumentation commands, build checks, and measured limits are documented in [validation](docs/validation.md) and [performance](docs/performance.md). Native simulator UI tests have not run in this session because Ace device controls are disabled. See [measured comparisons with Ace's existing libraries](docs/benchmark-comparison.md) for the initial baseline, and [the optimization report](docs/performance-optimization.md) for the faster range transport, native grammar backend, math paths, and remaining gaps.
+
+For optional standard WebGPU code drawing, use `{ codeRendering: 'webgpu' }`. See [WebGPU measurements and efficiency limits](docs/webgpu.md). Automatic selection retains the text renderer until target-device measurements justify a GPU default.

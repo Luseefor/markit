@@ -13,6 +13,7 @@
     "index.js",
     "worker.js",
     "highlight.js",
+    "gpu-code.js",
     "style.css",
     "pkg",
     "licenses",
@@ -21,6 +22,7 @@
   "scripts": {
     "build": "../scripts/build-web.sh",
     "test": "playwright test",
+    "test:gpu": "playwright test --config playwright.gpu.config.js",
     "serve": "python3 -m http.server 4173 --bind 127.0.0.1"
   },
   "devDependencies": {
