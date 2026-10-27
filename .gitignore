@@ -1,0 +1,11 @@
+/target/
+/dist/
+**/.build/
+**/.swiftpm/
+**/build/
+**/.gradle/
+**/local.properties
+/web/pkg/
+/web/pkg-node/
+node_modules/
+.DS_Store
