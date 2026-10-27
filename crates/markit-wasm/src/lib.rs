@@ -15,6 +15,12 @@ pub fn highlight_code(source: &str, language: &str) -> String {
     serde_json::to_string(markit::highlight(source, language).as_ref()).expect("serializable code")
 }
 
+/// Typed UTF-16 ranges avoid JSON and repeated token text across the web bridge.
+#[wasm_bindgen(js_name = highlightCodePacked)]
+pub fn highlight_code_packed(source: &str, language: &str) -> Vec<u32> {
+    markit::highlight_packed(source, language)
+}
+
 #[wasm_bindgen]
 pub struct MarkdownStream {
     inner: markit::StreamRenderer,

@@ -17,11 +17,11 @@ Run on an idle machine. The script executes browser and native measurements sequ
 | Group | Markit | Existing baseline | Qualification |
 | --- | --- | --- | --- |
 | Markdown HTML | Rust through Wasm, input/output conversion, HTML creation | Marked 18.0.14 HTML creation | Same trusted fixture; normalized block text, headings, table rows, and task counts checked before timing |
-| Lexical highlighting | Rust tokenizer, Wasm crossings, JSON serialization and JS decoding | Ace's current JS lexical highlighter | Different token metadata; Markit includes light/dark colors, Ace emits token kinds. Both preserve exact source |
+| Lexical highlighting | Rust tokenizer, Wasm crossings, JSON serialization and JS decoding; the range path instead transfers typed UTF-16 offsets and RGB values, then reconstructs identical tokens in JS | Ace's current JS lexical highlighter | Different token metadata; Markit includes light/dark colors, Ace emits token kinds. Both preserve exact source |
 | Full grammars | Optional Rust/Sublime grammar engine plus Wasm and JSON | Prism 1.30.0 through Ace's actual colored-line wrapper | Different grammars; both paths return colored source. Grammar loading is outside steady-state timing |
 | Native preparation | Rust parse, C bridge, serialization, Swift JSON decoding | Actual Ace Swift block parser with Foundation inline parsing | Same common-syntax input, different presentation data. Host macOS execution, not iPhone layout |
 | Foundation reference | Same Markit native path | Foundation full AttributedString Markdown | Reference parser, not Ace's exact composition; output structures differ |
-| Math | Markdown parsing, vector math layout, SVG, and native PNG creation | KaTeX 0.19.0 HTML plus MathML string creation | Different outputs and amount of work; browser layout/painting excluded, so no equivalent-output speedup claim |
+| Math | Markdown parsing, vector math layout, SVG path output; native PNG work is excluded from the HTML path | KaTeX 0.19.0 HTML plus MathML string creation | Different outputs and amount of work; browser layout/painting excluded, so no equivalent-output speedup claim |
 | Streaming | Wasm HTML patches plus JSON decoding | Ace's actual BlockStream token patches | Same append/history; different patch contents, no speedup ratio |
 
 The Markdown fixtures deliberately exclude code/math/raw HTML so those extra Markit features do not distort the HTML comparison. Marked's default HTML output is not sanitized; these inputs are trusted. This is not a comparison of complete secure application pipelines.
@@ -35,3 +35,9 @@ Ace browser sources are bundled with Bun without minification for this driver. C
 ## Current findings
 
 See [the comparison report](../docs/benchmark-comparison.md). The measurements expose remaining work in Wasm lexical highlighting and especially optional full grammars. They do not establish that Markit wins every workload.
+
+## Host feature before/after measurements
+
+Run `./benchmarks/run-native-features.sh` to compare shared Rust preparation with commit `6bc21b6`. Set `MARKIT_BASELINE` to choose another compatible commit. The baseline is extracted into a temporary directory with its own Cargo output directory. Do not share build outputs across the two checkouts. The script leaves the temporary baseline available for inspection.
+
+Each case runs nine batches of at least 40 ms after 16 warmup calls. Uncached cases cycle through 256 preallocated source strings, more than the 128-entry cache cap; cache-hit cases are separate. Results include the source byte count and all samples. These are host Rust measurements, without Swift/JNI decoding or mobile UI layout. `cargo run -p markit --release --features grammars --example profile_highlight -- [file]` separately times regex parsing and the two theme passes. Without a file it uses the embedded TypeScript fixture.

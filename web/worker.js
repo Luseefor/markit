@@ -1,4 +1,5 @@
-import init, { MarkdownStream, highlightCode, highlightGrammar } from './pkg/markit_wasm.js';
+import { unpackHighlight } from './highlight.js';
+import init, { MarkdownStream, highlightCodePacked, highlightGrammar } from './pkg/markit_wasm.js';
 const ready = init();
 let stream;
 let previous = '';
@@ -7,7 +8,7 @@ self.onmessage = async ({ data }) => {
   try {
     await ready;
     if (type === 'highlight') {
-      self.postMessage({ id, result: JSON.parse((data.grammar ? highlightGrammar : highlightCode)(data.source, data.language)) });
+      self.postMessage({ id, result: data.grammar ? JSON.parse(highlightGrammar(data.source, data.language)) : unpackHighlight(data.source, highlightCodePacked(data.source, data.language)) });
       return;
     }
     if (typeof data.source !== 'string' || data.source.length > 8 * 1024 * 1024) throw new Error('Invalid or oversized document');

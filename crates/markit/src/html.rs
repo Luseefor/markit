@@ -72,7 +72,7 @@ pub(crate) fn render_html_with_refs(
             }
             Event::Code(code) => {
                 if let Some(formula) = prepared.formula(&code) {
-                    if let Some(visual) = crate::render_math(&formula.tex, formula.display) {
+                    if let Some(visual) = crate::math::render_svg(&formula.tex, formula.display) {
                         Event::Html(format!("<span class=\"mk-math{}\" role=\"math\" aria-label=\"{}\" data-tex=\"{}\">{}</span>",
                             if formula.display { " mk-display" } else { "" }, escape(&formula.tex), escape(&formula.raw), visual.svg).into())
                     } else {
@@ -175,12 +175,11 @@ pub(crate) fn render_html_with_refs(
 fn render_code(code: &str, info: &crate::FenceInfo) -> String {
     let mut output = format!("<section class=\"mk-codeblock\"><header><span>{}</span><button type=\"button\" data-markit-copy aria-label=\"Copy code\">Copy</button></header><pre><code class=\"language-{}\">",
         escape(info.file.as_deref().unwrap_or(&info.language)), escape(&info.language));
-    let highlighted = crate::highlight(code, &info.language);
     let mut line = 1usize;
     output.push_str("<span class=\"mk-line\" data-line=\"1\">");
     let mut at_line_start = true;
-    for token in &highlighted.tokens {
-        for part in token.text.split_inclusive('\n') {
+    crate::highlight::for_each_run(code, &info.language, |text, light, dark| {
+        for part in text.split_inclusive('\n') {
             if at_line_start && info.diff {
                 let kind = if part.starts_with("+++")
                     || part.starts_with("---")
@@ -199,8 +198,8 @@ fn render_code(code: &str, info: &crate::FenceInfo) -> String {
             }
             output.push_str(&format!(
                 "<span style=\"--mk-light:{};--mk-dark:{}\">{}</span>",
-                token.light,
-                token.dark,
+                light,
+                dark,
                 escape(part)
             ));
             if part.ends_with('\n') {
@@ -215,7 +214,7 @@ fn render_code(code: &str, info: &crate::FenceInfo) -> String {
                 at_line_start = false;
             }
         }
-    }
+    });
     if info.diff && !at_line_start {
         output.push_str("</span>");
     }

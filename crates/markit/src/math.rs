@@ -16,17 +16,38 @@ pub struct MathVisual {
 }
 static FONT: OnceLock<MathFont> = OnceLock::new();
 thread_local! {
-    static CACHE: RefCell<crate::cache::Cache<(String, bool), Arc<MathVisual>>> =
+    static CACHE: RefCell<crate::cache::Cache<(String, bool, MathOutput), Arc<MathVisual>>> =
         RefCell::new(crate::cache::Cache::new(4 * 1024 * 1024));
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum MathOutput {
+    Svg,
+    Pixels,
+    Both,
 }
 
 /// Native math is rasterized by Rust, with no WebView or platform TeX engine.
 /// Invalid, unsupported, oversized, or excessively deep formulas stay source text.
 pub fn render_math(tex: &str, display: bool) -> Option<Arc<MathVisual>> {
+    render_visual(tex, display, MathOutput::Both)
+}
+
+// HTML embeds SVG paths and never consumes the native bitmap. Keep its cache
+// separate so a web render cannot satisfy a later native request without pixels.
+pub(crate) fn render_svg(tex: &str, display: bool) -> Option<Arc<MathVisual>> {
+    render_visual(tex, display, MathOutput::Svg)
+}
+
+pub(crate) fn render_pixels(tex: &str, display: bool) -> Option<Arc<MathVisual>> {
+    render_visual(tex, display, MathOutput::Pixels)
+}
+
+fn render_visual(tex: &str, display: bool, output: MathOutput) -> Option<Arc<MathVisual>> {
     if tex.len() > 2048 || tex.trim().is_empty() {
         return None;
     }
-    let key = (tex.to_owned(), display);
+    let key = (tex.to_owned(), display, output);
     if let Some(cached) = CACHE.with(|cache| cache.borrow_mut().get(&key)) {
         return Some(cached);
     }
@@ -60,24 +81,33 @@ pub fn render_math(tex: &str, display: bool) -> Option<Arc<MathVisual>> {
     if height_em > 48 || width_em.saturating_mul(height_em) > 2048 {
         return None;
     }
-    let svg_options = SvgOptions {
-        font_size_pt: Dim::from_i64(16),
-        display,
-        ..SvgOptions::new()
+    let svg = if output != MathOutput::Pixels {
+        let svg_options = SvgOptions {
+            font_size_pt: Dim::from_i64(16),
+            display,
+            ..SvgOptions::new()
+        };
+        let svg = latex_rust::render_svg(&tree, font, &svg_options).ok()?;
+        svg[svg.find("<svg")?..].replace("#000000", "currentColor")
+    } else {
+        String::new()
     };
-    let svg = latex_rust::render_svg(&tree, font, &svg_options).ok()?;
-    let png_options = PngOptions {
-        font_size_pt: Dim::from_i64(16),
-        display,
-        ..PngOptions::new()
+    let (png, width, height) = if output != MathOutput::Svg {
+        let png_options = PngOptions {
+            font_size_pt: Dim::from_i64(16),
+            display,
+            ..PngOptions::new()
+        };
+        let png = latex_rust::render_png(&tree, font, &png_options).ok()?;
+        let width = u32::from_be_bytes(png.get(16..20)?.try_into().ok()?);
+        let height = u32::from_be_bytes(png.get(20..24)?.try_into().ok()?);
+        (STANDARD.encode(png), width, height)
+    } else {
+        (String::new(), 0, 0)
     };
-    let png = latex_rust::render_png(&tree, font, &png_options).ok()?;
-    let width = u32::from_be_bytes(png.get(16..20)?.try_into().ok()?);
-    let height = u32::from_be_bytes(png.get(20..24)?.try_into().ok()?);
-    let svg = svg[svg.find("<svg")?..].replace("#000000", "currentColor");
     let visual = Arc::new(MathVisual {
         svg,
-        png: STANDARD.encode(png),
+        png,
         width,
         height,
     });
@@ -338,4 +368,27 @@ pub(crate) fn prepare(source: &str) -> Prepared<'_> {
         prepared.source = Cow::Owned(output);
     }
     prepared
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn svg_math_skips_pixels_without_changing_paths_or_native_cache_entries() {
+        for (tex, display) in [(r"\frac{x^2}{2}+1", false), (r"\sum_{i=1}^{n} i", true)] {
+            let vector = super::render_svg(tex, display).unwrap();
+            assert!(vector.png.is_empty());
+            let native = super::render_math(tex, display).unwrap();
+            assert!(!native.png.is_empty());
+            assert!(native.width > 0 && native.height > 0);
+            assert_eq!(vector.svg, native.svg);
+            let pixels = super::render_pixels(tex, display).unwrap();
+            assert!(pixels.svg.is_empty());
+            assert_eq!(pixels.png, native.png);
+            assert_eq!((pixels.width, pixels.height), (native.width, native.height));
+            assert!(std::sync::Arc::ptr_eq(
+                &vector,
+                &super::render_svg(tex, display).unwrap()
+            ));
+        }
+    }
 }

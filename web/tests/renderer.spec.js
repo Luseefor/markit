@@ -78,3 +78,27 @@ test('image bytes are resolved by the host and math copies its TeX source', asyn
   });
   expect(copied).toBe('\\(x^2\\)');
 });
+
+test('compact worker highlighting exactly matches legacy tokens and colors', async ({ page }) => {
+  const results = await page.evaluate(async () => {
+    const wasm = await import('/pkg/markit_wasm.js'); await wasm.default();
+    const pairs = [
+      ['const café = "😀";\n/* multi\nline */\nfn()', 'ts'],
+      ['let x = r###"😀"###;\n', 'rs'],
+      ['SELECT name FROM records WHERE x IS NOT NULL', 'sql'],
+      ["x = '''multi\nline 😀''' # comment", 'python'],
+      ['<div title="😀">hello</div>', 'tsx'],
+      ['', 'rust'], ['', 'unknown'], ['😀', 'unknown-😀'],
+      ['hello', 'x'.repeat(5000)],
+      ['let x = 1;\n'.repeat(3000), 'rust'],
+    ];
+    const results = [];
+    for (const [source, language] of pairs) {
+      const expected = JSON.parse(wasm.highlightCode(source, language));
+      const actual = await window.renderer.highlight(source, language);
+      results.push({ equal: JSON.stringify(actual) === JSON.stringify(expected), preserved: actual.tokens.map(t => t.text).join('') === source });
+    }
+    return results;
+  });
+  expect(results.every(result => result.equal && result.preserved)).toBe(true);
+});

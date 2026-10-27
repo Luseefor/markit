@@ -12,6 +12,7 @@
   "files": [
     "index.js",
     "worker.js",
+    "highlight.js",
     "style.css",
     "pkg",
     "licenses",

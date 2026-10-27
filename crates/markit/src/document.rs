@@ -264,23 +264,13 @@ impl Builder {
             self.text("[image]");
         }
         if let Some(info) = &frame.fence {
-            let code = self.document.text[frame.byte_start..].to_owned();
-            let highlighted = crate::highlight(&code, &info.language);
-            let mut position = frame.start;
-            for token in &highlighted.tokens {
-                let end = position + token.text.encode_utf16().count();
-                if !highlighted.plain && position < end {
-                    self.document.spans.push(Span {
-                        start: position,
-                        end,
-                        style: Style::Syntax {
-                            light: token.light.clone(),
-                            dark: token.dark.clone(),
-                        },
-                    });
-                }
-                position = end;
-            }
+            let code = &self.document.text[frame.byte_start..];
+            crate::highlight::append_syntax_spans(
+                code,
+                &info.language,
+                frame.start,
+                &mut self.document.spans,
+            );
             if info.diff {
                 let mut position = frame.start;
                 for line in code.split_inclusive('\n') {
@@ -406,7 +396,8 @@ pub(crate) fn parse_with_refs(source: &str, references: &crate::References) -> D
             Event::Code(text) => {
                 let start = builder.position;
                 if let Some(formula) = prepared.formula(&text) {
-                    if let Some(visual) = crate::render_math(&formula.tex, formula.display) {
+                    if let Some(visual) = crate::math::render_pixels(&formula.tex, formula.display)
+                    {
                         builder.text("\u{fffc}");
                         builder.span(
                             start,

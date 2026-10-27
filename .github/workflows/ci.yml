@@ -25,7 +25,13 @@ jobs:
       - run: cd web && npx playwright install --with-deps chromium
       - run: npm --prefix web test
       - run: cd web && npm pack --dry-run
+      - run: MARKIT_FEATURES=grammars ./scripts/build-web.sh
   ios:
+    strategy:
+      matrix:
+        grammar_features: ["", "grammars"]
+    env:
+      MARKIT_FEATURES: ${{ matrix.grammar_features }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,13 +39,18 @@ jobs:
         with:
           targets: aarch64-apple-ios, aarch64-apple-ios-sim
       - run: ./scripts/package-notices.sh
-      - run: cargo build -p markit-ffi --release --locked
+      - run: cargo build -p markit-ffi --release --locked --features "$MARKIT_FEATURES"
       - run: MARKIT_SOURCE_BRIDGE=1 swift test --package-path platforms/ios -Xlinker "$PWD/target/release/libmarkit_ffi.a"
       - run: ./scripts/build-ios.sh
       - run: brew install xcodegen
       - run: xcodegen generate --spec examples/ios/project.yml
       - run: xcodebuild -project examples/ios/MarkitDemo.xcodeproj -scheme MarkitDemo -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
   android:
+    strategy:
+      matrix:
+        grammar_features: ["", "grammars"]
+    env:
+      MARKIT_FEATURES: ${{ matrix.grammar_features }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

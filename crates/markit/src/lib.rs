@@ -12,7 +12,7 @@ mod stream;
 
 pub use document::{parse, Block, Document, Span, Style};
 pub use fence::{fence_info, FenceInfo};
-pub use highlight::{highlight, language_alias, CodeToken, HighlightedCode};
+pub use highlight::{highlight, highlight_packed, language_alias, CodeToken, HighlightedCode};
 
 /// Optional full Sublime grammars. Enable the `grammars` Cargo feature.
 pub fn highlight_grammar(source: &str, language: &str) -> Option<std::sync::Arc<HighlightedCode>> {
@@ -33,8 +33,7 @@ pub use stream::{RenderPatch, RenderedBlock, StreamRenderer};
 
 /// Highlight a complete source file without wrapping it in a Markdown fence.
 pub fn code_document(source: &str, language: &str) -> Document {
-    let highlighted = highlight(source, language);
-    document_from_highlight(source, &highlighted)
+    highlight::code_document(source, language)
 }
 
 pub fn code_document_grammar(source: &str, language: &str) -> Option<Document> {

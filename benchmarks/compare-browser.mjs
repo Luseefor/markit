@@ -1,3 +1,4 @@
+import { unpackHighlight } from '../web/highlight.js';
 import { fixture, markdownSizes, codeSizes } from './fixtures.mjs';
 const rounds = 9, roundMs = 70;
 let sink = 0;
@@ -59,6 +60,7 @@ window.runBench = async () => {
     // are measured separately, never compared against uncached tokenization.
     status.textContent = `Lexical highlighting ${size} bytes`;
     highlighting.push(measure('Markit Wasm lexical + JSON decode',source,i=>JSON.parse(wasm.highlightCode(`${source}\n// benchmark-${i}`,'ts')).tokens.length,{category:'lexical',cache:'miss'}));
+    highlighting.push(measure('Markit Wasm lexical ranges + tokens',source,i=>{const input=`${source}\n// packed-benchmark-${i}`;return unpackHighlight(input,wasm.highlightCodePacked(input,'ts')).tokens.length;},{category:'lexical',cache:'miss'}));
     highlighting.push(measure('Ace JS lexical',source,i=>ace.highlight(`${source}\n// benchmark-${i}`,'ts').length,{category:'lexical',cache:'none'}));
     // Prism's actual sourceHighlight wrapper is async; measure batches after
     // grammar loading, including its flat colored line conversion.
@@ -122,9 +124,9 @@ window.runMathBench = async () => {
   const math=[];
   for(const [name,formula] of [['simple',String.raw`x^2+1`],['sum_fraction',String.raw`\sum_{i=1}^{n} i^2 = \frac{n(n+1)(2n+1)}{6}`]]) {
     if(!wasm.renderHtml(`$$${formula}$$`).includes('role="math"'))throw new Error(`Math unsupported: ${name}`);
-    math.push(measure('Markit Wasm SVG + PNG, uncached',formula,i=>wasm.renderHtml(`$$${formula}+${i}$$`).length,{category:'math',formula:name,cache:'miss'}));
+    math.push(measure('Markit Wasm SVG, uncached',formula,i=>wasm.renderHtml(`$$${formula}+${i}$$`).length,{category:'math',formula:name,cache:'miss'}));
     math.push(measure('KaTeX HTML + MathML, uncached',formula,i=>katex.renderToString(`${formula}+${i}`,options).length,{category:'math',formula:name,cache:'none'}));
     math.push(measure('Markit Wasm math, repeated formula',formula,()=>wasm.renderHtml(`$$${formula}$$`).length,{category:'math',formula:name,cache:'hit'}));
   }
-  return {timestamp:new Date().toISOString(),user_agent:navigator.userAgent,cross_origin_isolated:crossOriginIsolated,cold,math,note:'Different output formats. Markit includes Markdown parsing, vector output, and native PNG generation; KaTeX emits HTML+MathML. No equivalence or speedup claim.'};
+  return {timestamp:new Date().toISOString(),user_agent:navigator.userAgent,cross_origin_isolated:crossOriginIsolated,cold,math,note:'Different output formats. Markit includes Markdown parsing, SVG path output; KaTeX emits HTML+MathML. No equivalence or speedup claim.'};
 };

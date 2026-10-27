@@ -259,3 +259,113 @@ fn streaming_reuses_settled_blocks_and_reset_discards_old_source() {
     assert_eq!(update.replace_from, 0);
     assert_eq!(stream.source(), "New");
 }
+
+#[test]
+fn compact_highlighting_matches_owned_tokens_and_native_utf16_spans() {
+    for (source, language) in [
+        ("const x = \"😀\";\n/* café */ fn()", "ts"),
+        ("let x = r###\"😀\"###; 'a: loop {}", "rs"),
+        ("SELECT name FROM records WHERE x IS NOT NULL", "sql"),
+        ("a = '\"hello' # café\n", "python"),
+        ("<div title=\"😀\">hello</div>", "tsx"),
+        ("😀", "unknown-😀"),
+        ("", "unknown"),
+        ("", "rust"),
+    ] {
+        let code = highlight(source, language);
+        let packed = markit::highlight_packed(source, language);
+        assert_eq!(packed[0], 1);
+        assert_eq!(packed[1] != 0, code.plain);
+        let language_end = 3 + packed[2] as usize;
+        let language_units: Vec<_> = packed[3..language_end].iter().map(|&n| n as u16).collect();
+        assert_eq!(String::from_utf16(&language_units).unwrap(), code.language);
+        let mut offset = 0;
+        let runs: Vec<_> = packed[language_end..].chunks_exact(3).collect();
+        assert_eq!(runs.len(), code.tokens.len());
+        for (run, token) in runs.iter().zip(&code.tokens) {
+            offset += token.text.encode_utf16().count();
+            assert_eq!(run[0] as usize, offset);
+            assert_eq!(format!("#{:06x}", run[1]), token.light);
+            assert_eq!(format!("#{:06x}", run[2]), token.dark);
+        }
+        let native = markit::code_document(source, language);
+        assert_eq!(native.text, source);
+        assert_eq!(native.blocks[0].end, source.encode_utf16().count());
+        let syntax: Vec<_> = native
+            .spans
+            .iter()
+            .filter(|span| matches!(span.style, Style::Syntax { .. }))
+            .collect();
+        assert_eq!(syntax.len(), if code.plain { 0 } else { code.tokens.len() });
+        let mut start = 0;
+        for (span, token) in syntax.iter().zip(&code.tokens) {
+            assert_eq!(span.start, start);
+            start += token.text.encode_utf16().count();
+            assert_eq!(span.end, start);
+            assert_eq!(
+                span.style,
+                Style::Syntax {
+                    light: token.light.clone(),
+                    dark: token.dark.clone()
+                }
+            );
+        }
+    }
+}
+
+#[cfg(feature = "grammars")]
+#[test]
+fn shared_grammar_parse_keeps_both_theme_colors_identical() {
+    use syntect::{easy::HighlightLines, util::LinesWithEndings};
+    let syntaxes = two_face::syntax::extra_newlines();
+    let themes = two_face::theme::extra();
+    for (source, language) in [
+        (
+            "/* multi\nline 😀 */\nconst view = <div title=\"café\" />;\n",
+            "tsx",
+        ),
+        (
+            "/* nested /* inner */ outer */\nfn f<'a>(x: &'a str) { let s = r###\"😀\"###; }\n",
+            "rust",
+        ),
+        (
+            "x = '''multi\nline 😀'''\ndef f(x): return x + 42\n",
+            "python",
+        ),
+    ] {
+        let syntax = syntaxes.find_syntax_by_token(language).unwrap();
+        let actual = markit::highlight_grammar(source, language).unwrap();
+        assert!(!actual.plain);
+        for (theme, dark) in [
+            (two_face::theme::EmbeddedThemeName::InspiredGithub, false),
+            (two_face::theme::EmbeddedThemeName::Dracula, true),
+        ] {
+            let mut reference = HighlightLines::new(syntax, themes.get(theme));
+            let mut expected = Vec::new();
+            for line in LinesWithEndings::from(source) {
+                for (style, text) in reference.highlight_line(line, &syntaxes).unwrap() {
+                    let c = style.foreground;
+                    expected.extend(std::iter::repeat_n(
+                        format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b),
+                        text.len(),
+                    ));
+                }
+            }
+            let colors: Vec<_> = actual
+                .tokens
+                .iter()
+                .flat_map(|token| {
+                    std::iter::repeat_n(
+                        if dark {
+                            token.dark.clone()
+                        } else {
+                            token.light.clone()
+                        },
+                        token.text.len(),
+                    )
+                })
+                .collect();
+            assert_eq!(colors, expected, "{language}, dark={dark}");
+        }
+    }
+}

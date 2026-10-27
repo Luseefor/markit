@@ -6,9 +6,9 @@ Local verification on MacBook Pro Rijan, 2026-10-27:
 | --- | --- |
 | Rust formatting | Pass |
 | Clippy, workspace/all targets/all features, warnings denied | Pass |
-| Rust workspace tests with optional grammars | 23 passed |
+| Rust workspace tests with optional grammars | 28 passed |
 | Swift tests through the linked Rust C library | 3 passed |
-| Playwright Chromium browser flows | 8 passed |
+| Playwright Chromium browser flows | 9 passed |
 | iOS arm64 device and simulator libraries / XCFramework | Build passes |
 | iOS SwiftUI/UIKit example, arm64 simulator SDK | Build passes |
 | Android arm64-v8a and x86_64 JNI shared libraries | Build passes |
@@ -20,7 +20,9 @@ Local verification on MacBook Pro Rijan, 2026-10-27:
 | Desktop/390 px browser layout | Inspected; responsive overflow check passes |
 | Ace browser console | No errors observed |
 
-The browser tests cover Wasm output, syntax colors, math, tables/tasks, reference activation, escaped HTML, blocked automatic image requests, streamed DOM reuse, late reference definitions, replacement/coalesced renders, 5,000-line code virtualization, complete source copying, host-supplied image bytes, and TeX copying.
+Optional-grammar iOS and Android cores compile. Default and optional core Rust tests pass. The optional native backend uses Oniguruma, with the iOS deployment target set to the Swift package minimum of 15.0 and the Android C compiler set to the same NDK/API as Rust. CI now checks both native feature sets.
+
+The browser tests compare compact-worker tokens with the original token API, including Unicode, aliases, SQL case, plain fallback and the token cap. They also cover Wasm output, syntax colors, math, tables/tasks, reference activation, escaped HTML, blocked automatic image requests, streamed DOM reuse, late reference definitions, replacement/coalesced renders, 5,000-line code virtualization, complete source copying, host-supplied image bytes, and TeX copying.
 
 Native device/simulator UI tests and Android instrumentation execution have not run. Ace's device controls are disabled in this session. SDK compilation and host bridge tests do not prove native scrolling, layout, accessibility, or performance on a device. No shared simulator was created, erased, or driven.
 

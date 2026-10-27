@@ -1,5 +1,7 @@
 # Engine measurements
 
+The original measurements below are retained for reference. [The optimization report](performance-optimization.md) records the latest before/after results for highlighting and math.
+
 Measured locally on MacBook Pro Rijan on 2026-10-27 with `cargo bench -p markit --bench throughput`, Rust 1.91.1, and the release profile in this repository. Each whole-document case warms up ten times, then runs for at least 300 ms. The fixture repeats prose, headings, links, lists, tasks, tables, and fenced Rust code. Highlight caches are warm; the fixture contains no math.
 
 | Operation | 261 bytes | 13,050 bytes | 104,400 bytes |

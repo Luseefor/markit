@@ -1,5 +1,7 @@
 # Renderer comparison benchmark
 
+These are the original baseline measurements. See [the optimization report](performance-optimization.md) for the later speed improvements and remaining gaps.
+
 Measured on Apple M3 Pro, macOS 27.2, Chromium 156.0.8078.4. Marked 18.0.14, Prism 1.30.0, KaTeX 0.19.0. The native model code is from Ace commit `b92d9d261848`; the Markit engine is from `0405eedf9202`.
 
 Markit is faster on the measured Markdown-to-HTML and native host preparation workloads. Wasm lexical highlighting is slower than Ace's lightweight JS tokenizer. Optional full grammars are much slower than Prism and need performance work before interactive use. These results do not establish iPhone/Android frame rates or complete Ace application performance.

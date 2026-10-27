@@ -3,9 +3,8 @@ use std::{
     sync::{Arc, OnceLock},
 };
 use syntect::{
-    easy::HighlightLines,
-    highlighting::{Color, ThemeSet},
-    parsing::SyntaxSet,
+    highlighting::{Color, HighlightIterator, HighlightState, Highlighter, ThemeSet},
+    parsing::{ParseState, ScopeStack, SyntaxSet},
     util::LinesWithEndings,
 };
 
@@ -74,18 +73,21 @@ pub fn highlight(code: &str, language: &str) -> Arc<HighlightedCode> {
                 );
                 themes
             });
-            let mut light = HighlightLines::new(syntax, &themes.themes["light"]);
-            let mut dark = HighlightLines::new(syntax, &themes.themes["dark"]);
+            let light = Highlighter::new(&themes.themes["light"]);
+            let dark = Highlighter::new(&themes.themes["dark"]);
+            let mut parser = ParseState::new(syntax);
+            let mut light_state = HighlightState::new(&light, ScopeStack::new());
+            let mut dark_state = HighlightState::new(&dark, ScopeStack::new());
             let mut tokens: Vec<CodeToken> = Vec::new();
             let mut failed = false;
             for line in LinesWithEndings::from(code) {
-                let (Ok(lights), Ok(darks)) = (
-                    light.highlight_line(line, syntaxes),
-                    dark.highlight_line(line, syntaxes),
-                ) else {
+                let Ok(operations) = parser.parse_line(line, syntaxes) else {
                     failed = true;
                     break;
                 };
+                let lights = HighlightIterator::new(&mut light_state, &operations, line, &light);
+                let darks: Vec<_> =
+                    HighlightIterator::new(&mut dark_state, &operations, line, &dark).collect();
                 let mut dark_index = 0;
                 let mut dark_offset = 0;
                 for (style, mut text) in lights {

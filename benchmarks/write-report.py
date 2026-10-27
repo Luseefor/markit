@@ -5,8 +5,8 @@ browser=json.loads((root/'benchmarks/results/browser.json').read_text())
 native=json.loads((root/'benchmarks/results/native-host.json').read_text())
 math=json.loads((root/'benchmarks/results/math.json').read_text())
 env=json.loads((root/'benchmarks/results/environment.json').read_text())
-lines=['# Renderer comparison benchmark','',f"Measured on {env['cpu']}, macOS {env['os']}, Chromium {browser['browser_version']}. Marked {env['marked']}, Prism {env['prism']}, KaTeX {env['katex']}. The native model code is from Ace commit `{env['ace_commit'][:12]}`; the Markit engine is from `{env['markit_commit'][:12]}`.",'',
-'Markit is faster on the measured Markdown-to-HTML and native host preparation workloads. Wasm lexical highlighting is slower than Ace\'s lightweight JS tokenizer. Optional full grammars are much slower than Prism and need performance work before interactive use. These results do not establish iPhone/Android frame rates or complete Ace application performance.','',
+lines=['# Renderer comparison benchmark','','See [the optimization report](performance-optimization.md) for the later before/after pass and compact range transport.','',f"Measured on {env['cpu']}, macOS {env['os']}, Chromium {browser['browser_version']}. Marked {env['marked']}, Prism {env['prism']}, KaTeX {env['katex']}. The native model code is from Ace commit `{env['ace_commit'][:12]}`; the Markit engine is from `{env['markit_commit'][:12]}`.",'',
+'The tables describe the recorded workloads, including bridge conversion. Default lexical and optional full-grammar paths have different coloring fidelity. Compare uncached cases separately from cache hits. These results do not establish iPhone/Android frame rates or complete Ace application performance.','',
 '## Markdown to HTML','',
 'The inputs contain headings, paragraphs, inline styles, links, lists, tables, and tasks, with no code/math/raw HTML. Normalized block text, headings, table rows, and task counts match before timing. Markit includes Wasm string conversion; Marked uses its standard parser. No DOM layout or painting is timed.','',
 '| Actual input bytes | Markit Wasm | Marked | Marked time / Markit time |','| --- | ---: | ---: | ---: |']
@@ -18,7 +18,7 @@ lines+=['','Marked does not sanitize its default HTML output. These are controll
 '| Input bytes | Path | Median | Cache |','| --- | --- | ---: | --- |']
 for r in browser['highlighting']:
  lines.append(f"| {r['bytes']:,} | {r['name']} | {r['median_ms']:.3f} ms | {r['cache']} |")
-lines+=['','Default uncached Wasm lexical highlighting costs about 5-8x as much as Ace\'s simple lexical tokenizer on these fixtures. Optional full grammars cost about 180-190x as much as Prism\'s colored-line path. Both findings are open performance gaps. A cached Markit result is shown separately and must not be treated as an uncached win.','',
+lines+=['','The full grammar and lexical paths do different work. See the optimization report for measurements of the compact range API alongside the original JSON API. A cached Markit result is shown separately and must not be treated as an uncached win.','',
 '## Native preparation on the host Mac','',
 'The same common-syntax input is passed to the actual Ace Swift block parser plus Foundation inline parser, Foundation\'s full AttributedString parser, and Markit\'s Rust/C/JSON/Swift bridge. The outputs are different presentation models. Swift uses `-O`; Rust uses release optimization. These are macOS executions of native code, not device or UIKit layout benchmarks.','',
 '| Input bytes | Markit native bridge | Ace Swift + Foundation | Foundation full Markdown |','| --- | ---: | ---: | ---: |']
@@ -26,10 +26,10 @@ for i in range(0,len(native),3):
  a,b,c=native[i:i+3]; lines.append(f"| {a['bytes']:,} | {a['median_ms']:.3f} ms | {b['median_ms']:.3f} ms | {c['median_ms']:.3f} ms |")
 lines+=['','Markit preparation is about 1.9x faster than Ace\'s current Swift/Foundation preparation on these inputs. The JSON bridge still consumes substantial time at larger sizes. UIKit/SwiftUI drawing, selection, images, accessibility, frame hitches, energy, and memory are unmeasured.','',
 '## Math preparation','',
-'Markit currently creates vector layout, SVG paths, and native PNG data even for its web path. KaTeX emits HTML plus MathML whose layout/painting happens later in the browser. These operations do different work, so no equivalent-output speedup ratio is claimed. The KaTeX settings prohibit trusted HTML/URL commands.','',
+'The original math measurements include SVG and PNG creation. Later builds produce SVG for HTML and PNG for native documents, with separate cache entries for each output mode. KaTeX emits HTML plus MathML whose layout/painting happens later in the browser. These operations do different work, so no equivalent-output speedup ratio is claimed. The KaTeX settings prohibit trusted HTML/URL commands.','',
 '| Formula | Path | Median |','| --- | --- | ---: |']
 for r in math['math']: lines.append(f"| {r['formula']} | {r['name']} | {r['median_ms']:.4f} ms |")
-lines+=['','Candidate work includes a web-only vector math path that avoids unused PNG generation. This has not yet been implemented or measured. Cached formulas are fast, but that does not remove the cost of new/edited formulas.','',
+lines+=['','The optimization report measures the later vector-only HTML path. Cached formulas are fast, but that does not remove the cost of new/edited formulas.','',
 '## Streaming append','',
 'One append after a 131,411-byte history; setup is outside the timed interval. Markit creates HTML patches and decodes JSON, while Ace creates token patches. The outputs differ, so there is no direct speedup claim.','',
 '| Path | Median per append |','| --- | ---: |']
@@ -39,6 +39,6 @@ lines+=['','## First-use observations','',
 '| Path | Observed time |','| --- | ---: |']
 for r in browser['cold']+math['cold']: lines.append(f"| {r['name']} | {r['ms']:.1f} ms |")
 lines+=['','## Remaining measurements and work','',
-'- Run native iOS UI and Android instrumentation tests on the registered shared devices. Device controls were disabled during this work.','- Measure mobile frame times, scrolling, memory, and full UI rendering. Mac host results cannot stand in for those.','- There is no equivalent current Android Markdown parser baseline: Ace\'s Android transcript uses plain Text. Do not present plain-text display as a Markdown performance win.','- Profile Wasm lexical scanning, cache lookup, serialization, and decoding separately; reduce overhead without silently changing feature coverage.','- Keep full grammars opt-in while addressing their steady-state cost.','- Evaluate a web-only math path that skips native PNG work.','- Integrate the renderer into Ace, then compare the full transcript pipeline, not just the library.','',
+'- Run native iOS UI and Android instrumentation tests on the registered shared devices. Device controls were disabled during this work.','- Measure mobile frame times, scrolling, memory, and full UI rendering. Mac host results cannot stand in for those.','- There is no equivalent current Android Markdown parser baseline: Ace\'s Android transcript uses plain Text. Do not present plain-text display as a Markdown performance win.','- Compare compact range transport separately from the original JSON API.','- Keep full grammars opt-in while addressing their steady-state cost.','- Track native bitmap generation independently of web SVG output.','- Integrate the renderer into Ace, then compare the full transcript pipeline, not just the library.','',
 'Nine batches are retained for each steady-state case. The main statistic is the median of per-call batch averages. The stored p95 is a percentile of batch averages, not production tail latency. See [methodology and reproduction](../benchmarks/README.md) and [raw results](../benchmarks/results/).', '']
 (root/'docs/benchmark-comparison.md').write_text('\n'.join(lines))
