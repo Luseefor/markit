@@ -9,3 +9,11 @@
 /web/pkg-node/
 node_modules/
 .DS_Store
+/platforms/ios/Artifacts/
+/platforms/android/markit/src/main/jniLibs/
+/web/test-results/
+/web/playwright-report/
+/examples/ios/*.xcodeproj/
+/web/licenses/
+/platforms/android/markit/src/main/assets/markit-licenses/
+/platforms/ios/Sources/Markit/Licenses/

@@ -1,24 +1,25 @@
-# Ace feature checklist
+# Ace feature coverage
 
-The target is a shared engine that can replace Ace's Markdown parsing and code highlighting across native clients and the web. This checkpoint has not modified or integrated with Ace.
+Markit implements the renderer features identified in the local Ace Markdown modules. It is a separate library; no Ace application source or data has changed.
 
-The checklist was informed by the local Ace Markdown modules, their behavior tests, and the native iOS Markdown model. Implementations in this repository are written independently.
+| Feature | Implementation |
+| --- | --- |
+| CommonMark and inline styles | Shared parser; native UTF-16 spans and escaped HTML |
+| Nested lists, tasks, quotes, rules | Native attributed/spanned text and web semantics |
+| Tables | Alignment metadata; horizontally scrolling native row grids and web tables |
+| Code blocks | Language/file metadata, syntax colors, line numbers, copy controls |
+| Whole source files | Highlighted native documents and web token results with exact source preservation |
+| Syntax languages | Ace's language families and aliases on the default linear tokenizer; optional fuller Sublime grammars |
+| Diff fences | File labels and separate addition, deletion, context, and metadata styling |
+| Links and references | CommonMark definitions, late-reference invalidation, bare links, safe destinations |
+| File, thread, PR actions | Host callbacks for code file paths and explicit file/thread/PR links |
+| Images | Host-resolved bytes; native images and browser Blob URLs without automatic remote fetching |
+| Math | Dollar/backslash delimiters, shared Rust layout, web SVG/native bitmap output, TeX copying |
+| Streaming | Append API, stable block patches, unfinished fences/math, replacement edits and coalescing |
+| Memory and worker limits | Bounded caches, input/token limits, plain-source fallback, stale-result suppression and disposal |
+| Long documents | Recycled native blocks, small prose rows, bounded code/table viewports; web content visibility and virtualized large code fences |
+| Appearance and access | Light/dark syntax colors, native font scaling, selectable text, keyboard reference activation and labeled copy buttons |
 
-| Feature | Current Markit state | Remaining work |
-| --- | --- | --- |
-| Headings, emphasis, strong, strike, inline code | Shared parser and HTML/native plans | Native view styling |
-| Nested lists, tasks, quotes, rules | Shared parser and HTML/native plans | Native layout and task presentation |
-| Tables | HTML tables; tab-separated native text with spans | Native grid, alignment, horizontal scrolling |
-| Fenced and indented code | Language metadata and escaped code | Syntax highlighting, code headers, copy, line numbers |
-| Whole-file source highlighting | Not implemented | Rust tokenizer, language aliases, bounded cache |
-| Diff fences and file metadata | Not implemented | Parse fence info, additions/deletions, file labels |
-| Links and reference definitions | CommonMark references and safe URL policy | Bare URL linking and configurable app link resolution |
-| File, thread, and pull-request references | Not implemented | Host callbacks and Ace integration |
-| Images | Web image tags and native alt text/image spans | Host-resolved attachment bytes and native image views |
-| Inline and display math | Not implemented | Dollar and backslash delimiters, rendering and source copying |
-| Streaming snapshots | Incomplete Markdown parses safely | Append API, settled block reuse, late reference invalidation |
-| Worker scheduling and bounded caches | Not implemented | Wasm worker, stale-result handling, cancellation and budgets |
-| Large documents and code virtualization | Not implemented | Native and web block adapters with viewport-aware layout |
-| Raw HTML | Escaped in HTML output; literal in native text | Review desired Ace compatibility policy |
+App-specific thread/file lookup, PR cards, attachment permissions, conversation scroll anchoring, search, and surrounding transcript virtualization remain responsibilities of the host application. The hooks are implemented; wiring them into Ace requires an Ace integration change.
 
-Native JNI compilation, iOS static-library compilation, and Wasm compilation do not prove a native app or browser renders correctly. Application-level validation belongs to the next checkpoint, once view adapters exist.
+Compatibility choices are explicit. Raw HTML displays literally. The default tokenizer supplies lexical highlighting rather than exact Prism token equivalence. Full grammars are opt-in. LaTeX support follows the embedded renderer; unsupported constructs stay source text. No claim of complete Ace application behavior or measured native UI parity is made.

@@ -42,4 +42,22 @@ fn main() {
             black_box(&output);
         });
     }
+    let prefix = format!("{}\n\nOpen tail", section.repeat(400));
+    let mut elapsed = Duration::ZERO;
+    let mut parsed = 0;
+    for _ in 0..100 {
+        let mut stream = markit::StreamRenderer::new_html();
+        stream.append(&prefix, false);
+        let start = Instant::now();
+        let patch = stream.append(" continues", false);
+        elapsed += start.elapsed();
+        parsed = patch.parsed_bytes;
+        black_box(patch);
+    }
+    println!(
+        "\nStreaming append: {:.1} µs/update after {} bytes; {} source bytes reconsidered",
+        elapsed.as_secs_f64() * 1e6 / 100.0,
+        prefix.len(),
+        parsed
+    );
 }

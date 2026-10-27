@@ -31,14 +31,14 @@ impl MarkitBuffer {
     }
 }
 
-/// format 0 = native JSON, format 1 = safe HTML. Embedded NUL is supported.
+/// format 0 = native JSON, 1 = safe HTML, 2 = code document request JSON.
 ///
 /// # Safety
 /// For nonzero len, source must point to len readable bytes for the duration of
 /// this call. len must not exceed isize::MAX. No pointer is retained.
 #[no_mangle]
 pub unsafe extern "C" fn markit_render(source: *const u8, len: usize, format: u32) -> MarkitBuffer {
-    if (source.is_null() && len != 0) || len > isize::MAX as usize || format > 1 {
+    if (source.is_null() && len != 0) || len > isize::MAX as usize || format > 3 {
         return MarkitBuffer::error(2);
     }
     catch_unwind(|| {
@@ -51,13 +51,80 @@ pub unsafe extern "C" fn markit_render(source: *const u8, len: usize, format: u3
         let Ok(text) = str::from_utf8(bytes) else {
             return MarkitBuffer::error(1);
         };
-        MarkitBuffer::owned(if format == 0 {
+        MarkitBuffer::owned(if format >= 2 {
+            let Ok(request) = serde_json::from_str::<serde_json::Value>(text) else {
+                return MarkitBuffer::error(2);
+            };
+            let (Some(source), Some(language)) =
+                (request["source"].as_str(), request["language"].as_str())
+            else {
+                return MarkitBuffer::error(2);
+            };
+            let document = if format == 3 {
+                let Some(document) = markit::code_document_grammar(source, language) else {
+                    return MarkitBuffer::error(2);
+                };
+                document
+            } else {
+                markit::code_document(source, language)
+            };
+            serde_json::to_string(&document).expect("serializable document")
+        } else if format == 0 {
             markit::render_document_json(text)
         } else {
             markit::render_html(text)
         })
     })
     .unwrap_or_else(|_| MarkitBuffer::error(3))
+}
+
+#[no_mangle]
+pub extern "C" fn markit_stream_new() -> *mut markit::StreamRenderer {
+    Box::into_raw(Box::new(markit::StreamRenderer::new_native()))
+}
+
+/// # Safety
+/// stream must be a live handle from markit_stream_new, used by one caller at a
+/// time. source has the same readable-byte requirements as markit_render.
+#[no_mangle]
+pub unsafe extern "C" fn markit_stream_append(
+    stream: *mut markit::StreamRenderer,
+    source: *const u8,
+    len: usize,
+    finalized: u8,
+) -> MarkitBuffer {
+    if stream.is_null() || (source.is_null() && len != 0) || len > isize::MAX as usize {
+        return MarkitBuffer::error(2);
+    }
+    catch_unwind(|| {
+        // SAFETY: caller owns a live, exclusively accessed stream and readable input.
+        let stream = unsafe { &mut *stream };
+        let input = if len == 0 {
+            &[][..]
+        } else {
+            unsafe { slice::from_raw_parts(source, len) }
+        };
+        let Ok(delta) = str::from_utf8(input) else {
+            return MarkitBuffer::error(1);
+        };
+        if stream.source().len() + len > 8 * 1024 * 1024 {
+            return MarkitBuffer::error(2);
+        }
+        MarkitBuffer::owned(
+            serde_json::to_string(&stream.append(delta, finalized != 0))
+                .expect("serializable patch"),
+        )
+    })
+    .unwrap_or_else(|_| MarkitBuffer::error(3))
+}
+
+/// # Safety
+/// Free a handle returned by markit_stream_new exactly once, with no call in flight.
+#[no_mangle]
+pub unsafe extern "C" fn markit_stream_free(stream: *mut markit::StreamRenderer) {
+    if !stream.is_null() {
+        drop(unsafe { Box::from_raw(stream) });
+    }
 }
 
 /// # Safety
@@ -99,5 +166,41 @@ mod tests {
             assert_eq!(buffer.status, expected);
             unsafe { markit_buffer_free(buffer) };
         }
+    }
+
+    #[test]
+    fn code_requests_and_stream_handles_roundtrip_real_json() {
+        let request = br#"{"source":"let x = 1;","language":"rust"}"#;
+        let buffer = unsafe { markit_render(request.as_ptr(), request.len(), 2) };
+        assert_eq!(buffer.status, 0);
+        let document: serde_json::Value =
+            serde_json::from_slice(unsafe { slice::from_raw_parts(buffer.data, buffer.len) })
+                .unwrap();
+        assert_eq!(document["text"], "let x = 1;");
+        assert!(document["spans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|span| span["kind"] == "syntax"));
+        unsafe {
+            markit_buffer_free(buffer);
+        }
+        let handle = markit_stream_new();
+        for delta in ["First\n\nOpen", " tail\n"] {
+            let patch = unsafe { markit_stream_append(handle, delta.as_ptr(), delta.len(), 0) };
+            assert_eq!(patch.status, 0);
+            let value: serde_json::Value =
+                serde_json::from_slice(unsafe { slice::from_raw_parts(patch.data, patch.len) })
+                    .unwrap();
+            assert!(value["blocks"].is_array());
+            unsafe {
+                markit_buffer_free(patch);
+            }
+        }
+        unsafe {
+            markit_stream_free(handle);
+        }
+        let error = unsafe { markit_stream_append(ptr::null_mut(), ptr::null(), 0, 1) };
+        assert_eq!(error.status, 2);
     }
 }
