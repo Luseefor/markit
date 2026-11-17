@@ -1,6 +1,5 @@
 use std::{
     cell::RefCell,
-    rc::Rc,
     sync::{Arc, OnceLock},
 };
 use syntect::{
@@ -12,7 +11,9 @@ use syntect::{
 use crate::highlight::{language_alias, CodeToken, HighlightedCode};
 
 mod line;
-pub(crate) use line::{append_line_tokens, initial, parse_line_at, Boundary, ParsedLine};
+pub(crate) use line::{
+    append_line_tokens, hash_text, initial, parse_line_at, plain_line, Boundary, ParsedLine,
+};
 
 static SYNTAXES: OnceLock<SyntaxSet> = OnceLock::new();
 static THEMES: OnceLock<ThemeSet> = OnceLock::new();
@@ -183,8 +184,8 @@ fn cut_tokens(mut tokens: Vec<CodeToken>, at: usize) -> Vec<CodeToken> {
 // across edits, so reusing a suffix does not clone parser or scope stacks.
 struct ParsedCode {
     language: String,
-    initial: Rc<Boundary>,
-    lines: Vec<Rc<ParsedLine>>,
+    initial: Arc<Boundary>,
+    lines: Vec<Arc<ParsedLine>>,
 }
 fn parse_code(
     code: &str,
@@ -204,13 +205,13 @@ fn parse_code(
     let prefix = lines
         .iter()
         .zip(old)
-        .take_while(|(line, old)| **line == old.text)
+        .take_while(|(line, old)| line.len() == old.len && hash_text(line) == old.hash)
         .count();
     let suffix = lines[prefix..]
         .iter()
         .rev()
         .zip(old[prefix..].iter().rev())
-        .take_while(|(line, old)| **line == old.text)
+        .take_while(|(line, old)| line.len() == old.len && hash_text(line) == old.hash)
         .count();
     let initial = match previous.as_ref() {
         Some(old) => old.initial.clone(),
@@ -243,8 +244,8 @@ fn parse_code(
         _ => Vec::new(),
     };
     let first = if tokens.is_empty() { 0 } else { prefix };
-    for line in &parsed[first..] {
-        append_line_tokens(&mut tokens, line, line.text.len());
+    for (line, text) in parsed[first..].iter().zip(&lines[first..]) {
+        append_line_tokens(&mut tokens, text, text.len(), line);
         if tokens.len() > 8192 {
             return None;
         }

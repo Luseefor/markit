@@ -59,4 +59,9 @@ fn main() {
         millis(p50),
         millis(p99)
     );
+    let retained = highlighter.memory_bytes();
+    println!(
+        "retained after edits: {retained} bytes ({:.1} bytes/line)",
+        retained as f64 / LINES as f64
+    );
 }

@@ -1,7 +1,17 @@
 //! Line checkpoints and style runs shared by whole-file and incremental
 //! highlighting.
+//!
+//! `ParseState` is not `Sync` only because onig match regions hold raw
+//! pointers. The incremental handle is used by one thread at a time and is
+//! marked `Send` at the C boundary, so atomic checkpoints remain the right
+//! sharing type.
+#![allow(clippy::arc_with_non_send_sync)]
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    sync::{Arc, OnceLock},
+};
 
 use syntect::{
     highlighting::{Color, Highlighter},
@@ -23,23 +33,45 @@ pub(crate) struct Boundary {
     pub(crate) parser: ParseState,
     pub(crate) path: ScopeStack,
 }
+
+/// One parsed line. The live text stays with the caller, so a document does
+/// not store every line twice. `len` and `hash` identify the text that was
+/// parsed.
 pub(crate) struct ParsedLine {
-    pub(crate) text: String,
-    pub(crate) before: Rc<Boundary>,
-    pub(crate) after: Rc<Boundary>,
+    pub(crate) before: Arc<Boundary>,
+    pub(crate) after: Arc<Boundary>,
+    pub(crate) len: usize,
+    pub(crate) hash: u64,
     runs: Vec<Run>,
 }
-type Colors = Rc<(String, String)>;
+type Colors = Arc<(String, String)>;
 struct Run {
     len: usize,
     colors: Colors,
 }
 
-pub(crate) fn initial(syntax: &SyntaxReference) -> Rc<Boundary> {
-    Rc::new(Boundary {
+impl ParsedLine {
+    pub(crate) fn memory_bytes(&self) -> usize {
+        std::mem::size_of::<Self>() + self.runs.capacity() * std::mem::size_of::<Run>()
+    }
+}
+
+pub(crate) fn initial(syntax: &SyntaxReference) -> Arc<Boundary> {
+    Arc::new(Boundary {
         parser: ParseState::new(syntax),
         path: ScopeStack::new(),
     })
+}
+
+/// A stable, cheap comparison value for a line. Equality of the length and
+/// this hash is used instead of keeping a second copy of the line text.
+pub(crate) fn hash_text(text: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in text.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 fn color(color: Color) -> String {
@@ -67,7 +99,7 @@ fn colors(path: &[Scope], light: &Highlighter<'_>, dark: &Highlighter<'_>) -> Co
                 dark.style_for_stack(path).foreground,
             )
         };
-        let colors = Rc::new((color(l), color(d)));
+        let colors = Arc::new((color(l), color(d)));
         if styles.len() >= 16 * 1024 {
             styles.clear();
         }
@@ -76,13 +108,28 @@ fn colors(path: &[Scope], light: &Highlighter<'_>, dark: &Highlighter<'_>) -> Co
     })
 }
 
+fn plain_colors() -> Colors {
+    static PLAIN: OnceLock<Colors> = OnceLock::new();
+    PLAIN
+        .get_or_init(|| Arc::new(("#24292f".into(), "#c9d1d9".into())))
+        .clone()
+}
+
+fn after(before: &Arc<Boundary>, state: Boundary) -> Arc<Boundary> {
+    if state == **before {
+        before.clone()
+    } else {
+        Arc::new(state)
+    }
+}
+
 fn parse_line(
     line: &str,
-    before: &Rc<Boundary>,
+    before: &Arc<Boundary>,
     syntaxes: &SyntaxSet,
     light: &Highlighter<'_>,
     dark: &Highlighter<'_>,
-) -> Option<Rc<ParsedLine>> {
+) -> Option<Arc<ParsedLine>> {
     let mut state = Boundary::clone(before);
     let operations = state.parser.parse_line(line, syntaxes).ok()?;
     let mut runs: Vec<Run> = Vec::new();
@@ -105,10 +152,11 @@ fn parse_line(
     if line.len() > pos {
         push(line.len() - pos, colors(state.path.as_slice(), light, dark));
     }
-    Some(Rc::new(ParsedLine {
-        text: line.into(),
+    Some(Arc::new(ParsedLine {
         before: before.clone(),
-        after: Rc::new(state),
+        after: after(before, state),
+        len: line.len(),
+        hash: hash_text(line),
         runs,
     }))
 }
@@ -121,35 +169,57 @@ fn parse_line(
 pub(crate) fn parse_line_at(
     index: usize,
     line: &str,
-    before: &Rc<Boundary>,
+    before: &Arc<Boundary>,
     syntaxes: &SyntaxSet,
     light: &Highlighter<'_>,
     dark: &Highlighter<'_>,
-) -> Option<Rc<ParsedLine>> {
+) -> Option<Arc<ParsedLine>> {
     if index > 0 && (line == "\n" || line == "\r\n") {
-        return Some(Rc::new(ParsedLine {
-            text: line.into(),
+        let run = Run {
+            len: line.len(),
+            colors: colors(before.path.as_slice(), light, dark),
+        };
+        return Some(Arc::new(ParsedLine {
             before: before.clone(),
             after: before.clone(),
-            runs: vec![Run {
-                len: line.len(),
-                colors: colors(before.path.as_slice(), light, dark),
-            }],
+            len: line.len(),
+            hash: hash_text(line),
+            runs: vec![run],
         }));
     }
     parse_line(line, before, syntaxes, light, dark)
 }
 
+/// A line too long for the grammar, kept as one plain run with the parser
+/// state unchanged, as `highlight` treats long lines.
+pub(crate) fn plain_line(line: &str, before: &Arc<Boundary>) -> Arc<ParsedLine> {
+    Arc::new(ParsedLine {
+        before: before.clone(),
+        after: before.clone(),
+        len: line.len(),
+        hash: hash_text(line),
+        runs: vec![Run {
+            len: line.len(),
+            colors: plain_colors(),
+        }],
+    })
+}
+
 /// Appends a line's runs as tokens, merging with the last token when the
 /// colours match. Only the first `visible` bytes are emitted.
-pub(crate) fn append_line_tokens(tokens: &mut Vec<CodeToken>, line: &ParsedLine, visible: usize) {
+pub(crate) fn append_line_tokens(
+    tokens: &mut Vec<CodeToken>,
+    text: &str,
+    visible: usize,
+    line: &ParsedLine,
+) {
     let mut offset = 0;
     for run in &line.runs {
         if offset >= visible {
             break;
         }
         let len = run.len.min(visible - offset);
-        let part = &line.text[offset..offset + len];
+        let part = &text[offset..offset + len];
         if let Some(last) = tokens
             .last_mut()
             .filter(|last| last.light == run.colors.0 && last.dark == run.colors.1)
