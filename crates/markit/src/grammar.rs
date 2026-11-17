@@ -6,7 +6,7 @@ use std::{
 };
 use syntect::{
     highlighting::{Color, Highlighter, ThemeSet},
-    parsing::{ParseState, Scope, ScopeStack, SyntaxSet},
+    parsing::{ParseState, Scope, ScopeStack, SyntaxReference, SyntaxSet},
     util::LinesWithEndings,
 };
 
@@ -27,11 +27,31 @@ thread_local! {
         RefCell::new(crate::cache::Cache::new(4 * 1024 * 1024));
 }
 
+/// The two themes every syntax color comes from, built once per process.
+fn themes() -> &'static ThemeSet {
+    THEMES.get_or_init(|| {
+        let extras = two_face::theme::extra();
+        let mut themes = ThemeSet::new();
+        themes.themes.insert(
+            "light".into(),
+            extras
+                .get(two_face::theme::EmbeddedThemeName::InspiredGithub)
+                .clone(),
+        );
+        themes.themes.insert(
+            "dark".into(),
+            extras
+                .get(two_face::theme::EmbeddedThemeName::Dracula)
+                .clone(),
+        );
+        themes
+    })
+}
+
 /// `Highlighter::new` splits every theme rule into selector lists; build the
 /// two highlighters once per process instead of once per call.
-fn highlighters(
-    themes: &'static ThemeSet,
-) -> &'static (Highlighter<'static>, Highlighter<'static>) {
+fn highlighters() -> &'static (Highlighter<'static>, Highlighter<'static>) {
+    let themes = themes();
     static HIGHLIGHTERS: OnceLock<(Highlighter<'static>, Highlighter<'static>)> = OnceLock::new();
     HIGHLIGHTERS.get_or_init(|| {
         (
@@ -39,6 +59,36 @@ fn highlighters(
             Highlighter::new(&themes.themes["dark"]),
         )
     })
+}
+
+/// The grammars shared by every language. Built once, on first use.
+pub(crate) fn syntaxes() -> &'static SyntaxSet {
+    SYNTAXES.get_or_init(two_face::syntax::extra_newlines)
+}
+
+/// The grammar for a name, token or extension. `None` means plain text.
+pub(crate) fn syntax_for(language: &str) -> Option<&'static SyntaxReference> {
+    let syntaxes = syntaxes();
+    syntaxes
+        .find_syntax_by_token(language)
+        .or_else(|| syntaxes.find_syntax_by_extension(language))
+        .or_else(|| {
+            syntaxes.find_syntax_by_name(match language {
+                "csharp" => "C#",
+                "jsx" | "json5" => "JavaScript",
+                "tsx" => "TypeScriptReact",
+                "bash" => "Bourne Again Shell (bash)",
+                _ => language,
+            })
+        })
+}
+
+pub(crate) fn plain_token(text: &str) -> CodeToken {
+    CodeToken {
+        text: text.into(),
+        light: "#24292f".into(),
+        dark: "#c9d1d9".into(),
+    }
 }
 
 fn color(color: Color) -> String {
@@ -70,69 +120,33 @@ pub fn highlight(code: &str, language: &str) -> Arc<HighlightedCode> {
     let plain = || HighlightedCode {
         language: language.clone(),
         plain: true,
-        tokens: vec![CodeToken {
-            text: code.to_owned(),
-            light: "#24292f".into(),
-            dark: "#c9d1d9".into(),
-        }],
+        tokens: vec![plain_token(code)],
     };
     let result = if code.len() > 128 * 1024
         || code.lines().any(|line| line.len() > 2048)
         || language.is_empty()
     {
         plain()
-    } else {
-        let syntaxes = SYNTAXES.get_or_init(two_face::syntax::extra_newlines);
-        let syntax = syntaxes
-            .find_syntax_by_token(&language)
-            .or_else(|| syntaxes.find_syntax_by_extension(&language))
-            .or_else(|| {
-                syntaxes.find_syntax_by_name(match language.as_str() {
-                    "csharp" => "C#",
-                    "jsx" | "json5" => "JavaScript",
-                    "tsx" => "TypeScriptReact",
-                    "bash" => "Bourne Again Shell (bash)",
-                    _ => &language,
-                })
-            });
-        if let Some(syntax) = syntax {
-            let themes = THEMES.get_or_init(|| {
-                let extras = two_face::theme::extra();
-                let mut themes = ThemeSet::new();
-                themes.themes.insert(
-                    "light".into(),
-                    extras
-                        .get(two_face::theme::EmbeddedThemeName::InspiredGithub)
-                        .clone(),
-                );
-                themes.themes.insert(
-                    "dark".into(),
-                    extras
-                        .get(two_face::theme::EmbeddedThemeName::Dracula)
-                        .clone(),
-                );
-                themes
-            });
-            let themes = highlighters(themes);
-            let previous = PREVIOUS.with(|cache| cache.borrow_mut().take());
-            let reuse = last
-                .and_then(|(source, result)| Some((source.len(), Arc::try_unwrap(result).ok()?)))
-                .filter(|(_, result)| !result.plain)
-                .map(|(len, result)| (len, result.tokens));
-            match parse_code(code, &language, syntax, syntaxes, themes, previous, reuse) {
-                Some((tokens, parsed)) => {
-                    PREVIOUS.with(|cache| *cache.borrow_mut() = parsed);
-                    HighlightedCode {
-                        language: language.clone(),
-                        plain: false,
-                        tokens,
-                    }
+    } else if let Some(syntax) = syntax_for(&language) {
+        let themes = highlighters();
+        let previous = PREVIOUS.with(|cache| cache.borrow_mut().take());
+        let reuse = last
+            .and_then(|(source, result)| Some((source.len(), Arc::try_unwrap(result).ok()?)))
+            .filter(|(_, result)| !result.plain)
+            .map(|(len, result)| (len, result.tokens));
+        match parse_code(code, &language, syntax, syntaxes(), themes, previous, reuse) {
+            Some((tokens, parsed)) => {
+                PREVIOUS.with(|cache| *cache.borrow_mut() = parsed);
+                HighlightedCode {
+                    language: language.clone(),
+                    plain: false,
+                    tokens,
                 }
-                None => plain(),
             }
-        } else {
-            plain()
+            None => plain(),
         }
+    } else {
+        plain()
     };
     let weight = key.0.len()
         + key.1.len()
@@ -180,20 +194,27 @@ struct ParsedCode {
 /// Parser state and scope stack between lines. Theme state is derived from
 /// the scope stack, so it is not stored.
 #[derive(Clone, PartialEq, Eq)]
-struct Boundary {
-    parser: ParseState,
-    path: ScopeStack,
+pub(crate) struct Boundary {
+    pub(crate) parser: ParseState,
+    pub(crate) path: ScopeStack,
 }
-struct ParsedLine {
-    text: String,
-    before: Rc<Boundary>,
-    after: Rc<Boundary>,
-    runs: Vec<Run>,
+pub(crate) struct ParsedLine {
+    pub(crate) text: String,
+    pub(crate) before: Rc<Boundary>,
+    pub(crate) after: Rc<Boundary>,
+    pub(crate) runs: Vec<Run>,
 }
-type Colors = Rc<(String, String)>;
-struct Run {
-    len: usize,
-    colors: Colors,
+pub(crate) type Colors = Rc<(String, String)>;
+pub(crate) struct Run {
+    pub(crate) len: usize,
+    pub(crate) colors: Colors,
+}
+
+pub(crate) fn initial(syntax: &SyntaxReference) -> Rc<Boundary> {
+    Rc::new(Boundary {
+        parser: ParseState::new(syntax),
+        path: ScopeStack::new(),
+    })
 }
 
 /// Same colors as syntect's `HighlightIterator` for the stack: it applies
@@ -226,7 +247,7 @@ fn colors(path: &[Scope], light: &Highlighter<'_>, dark: &Highlighter<'_>) -> Co
     })
 }
 
-fn parse_line(
+pub(crate) fn parse_line(
     line: &str,
     before: &Rc<Boundary>,
     syntaxes: &SyntaxSet,
@@ -263,6 +284,59 @@ fn parse_line(
     }))
 }
 
+/// One line at its place in the file. A bare newline past line 0 carries no
+/// matchable text (trailing-space rules need spaces or tabs), so it parses to
+/// empty scope ops and replays the line in the current style with the boundary
+/// unchanged. Line 0 always parses: `ParseState::first_line` emits the syntax
+/// meta scope exactly once.
+pub(crate) fn parse_line_at(
+    index: usize,
+    line: &str,
+    before: &Rc<Boundary>,
+    syntaxes: &SyntaxSet,
+    light: &Highlighter<'_>,
+    dark: &Highlighter<'_>,
+) -> Option<Rc<ParsedLine>> {
+    if index > 0 && (line == "\n" || line == "\r\n") {
+        return Some(Rc::new(ParsedLine {
+            text: line.into(),
+            before: before.clone(),
+            after: before.clone(),
+            runs: vec![Run {
+                len: line.len(),
+                colors: colors(before.path.as_slice(), light, dark),
+            }],
+        }));
+    }
+    parse_line(line, before, syntaxes, light, dark)
+}
+
+/// Appends a line's runs as tokens, merging with the last token when the
+/// colours match. Only the first `visible` bytes are emitted.
+pub(crate) fn append_line_tokens(tokens: &mut Vec<CodeToken>, line: &ParsedLine, visible: usize) {
+    let mut offset = 0;
+    for run in &line.runs {
+        if offset >= visible {
+            break;
+        }
+        let len = run.len.min(visible - offset);
+        let part = &line.text[offset..offset + len];
+        if let Some(last) = tokens
+            .last_mut()
+            .filter(|last| last.light == run.colors.0 && last.dark == run.colors.1)
+        {
+            last.text.push_str(part);
+        } else {
+            tokens.push(CodeToken {
+                text: part.into(),
+                light: run.colors.0.clone(),
+                dark: run.colors.1.clone(),
+            });
+        }
+        offset += run.len;
+    }
+}
+
 fn parse_code(
     code: &str,
     language: &str,
@@ -291,10 +365,7 @@ fn parse_code(
         .count();
     let initial = match previous.as_ref() {
         Some(old) => old.initial.clone(),
-        None => Rc::new(Boundary {
-            parser: ParseState::new(syntax),
-            path: ScopeStack::new(),
-        }),
+        None => initial(syntax),
     };
     let mut state = if prefix > 0 {
         old[prefix - 1].after.clone()
@@ -311,25 +382,7 @@ fn parse_code(
                 break;
             }
         }
-        // Fast path: a bare newline past line 0 carries no matchable text
-        // (trailing-space rules need spaces or tabs), so it parses to empty
-        // scope ops and replays the line in the current style with the
-        // boundary unchanged. Line 0 always parses: `ParseState::first_line`
-        // emits the syntax meta scope exactly once.
-        let line = if index > 0 && (lines[index] == "\n" || lines[index] == "\r\n") {
-            let line = lines[index];
-            Rc::new(ParsedLine {
-                text: line.into(),
-                before: state.clone(),
-                after: state.clone(),
-                runs: vec![Run {
-                    len: line.len(),
-                    colors: colors(state.path.as_slice(), light, dark),
-                }],
-            })
-        } else {
-            parse_line(lines[index], &state, syntaxes, light, dark)?
-        };
+        let line = parse_line_at(index, lines[index], &state, syntaxes, light, dark)?;
         state = line.after.clone();
         parsed.push(line);
     }
@@ -342,23 +395,7 @@ fn parse_code(
     };
     let first = if tokens.is_empty() { 0 } else { prefix };
     for line in &parsed[first..] {
-        let mut offset = 0;
-        for run in &line.runs {
-            let part = &line.text[offset..offset + run.len];
-            if let Some(last) = tokens
-                .last_mut()
-                .filter(|last| last.light == run.colors.0 && last.dark == run.colors.1)
-            {
-                last.text.push_str(part);
-            } else {
-                tokens.push(CodeToken {
-                    text: part.into(),
-                    light: run.colors.0.clone(),
-                    dark: run.colors.1.clone(),
-                });
-            }
-            offset += run.len;
-        }
+        append_line_tokens(&mut tokens, line, line.text.len());
         if tokens.len() > 8192 {
             return None;
         }
