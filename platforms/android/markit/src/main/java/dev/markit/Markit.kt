@@ -1,5 +1,6 @@
 package dev.markit
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.Closeable
 
@@ -61,6 +62,11 @@ object Markit {
     /** MKNP v2 patch bytes. See docs/binary-transport.md. */
     @JvmStatic external fun nativeAppendPatch(handle: Long, delta: String, finalized: Boolean): ByteArray
     @JvmStatic external fun nativeFreeStream(handle: Long)
+    @JvmStatic external fun nativeCreateLineHighlighter(language: String): Long
+    @JvmStatic external fun nativeLineSetText(handle: Long, text: String)
+    @JvmStatic external fun nativeLineEdit(handle: Long, startLine: Int, removedLines: Int, inserted: String)
+    @JvmStatic external fun nativeLineTokens(handle: Long, startLine: Int, endLine: Int): String
+    @JvmStatic external fun nativeFreeLineHighlighter(handle: Long)
     fun parse(source: String, flavor: MarkitFlavor = MarkitFlavor.DEFAULT): MarkitDocument =
         MarkitDocument.decode(JSONObject(if (flavor == MarkitFlavor.DEFAULT) nativeRender(source, 0) else nativeRenderFlavor(source, 0, flavor.code)))
     /** Colours the whole source (up to 8 MiB of UTF-8; larger sources stay plain). Unknown non-empty languages use a generic lexer; "" and "text" stay plain. */
@@ -87,4 +93,40 @@ class MarkitStream(val flavor: MarkitFlavor = MarkitFlavor.DEFAULT) : Closeable 
         }
     }
     @Synchronized override fun close() { if (handle != 0L) { Markit.nativeFreeStream(handle); handle = 0 } }
+}
+
+data class MarkitToken(val text: String, val light: String, val dark: String)
+/**
+ * Incremental grammar highlighting for editors: set a whole file, report line
+ * edits, then ask for the visible lines. Tokens cover a line without its line
+ * ending. Requires a native build with the `grammars` feature, and a handle is
+ * used from the thread that created it.
+ */
+class LineHighlighter(language: String) : Closeable {
+    private var handle = Markit.nativeCreateLineHighlighter(language)
+    init { check(handle != 0L) { "Line highlighting needs a grammars build" } }
+    fun setText(text: String) {
+        check(handle != 0L) { "Line highlighter closed" }
+        Markit.nativeLineSetText(handle, text)
+    }
+    /** Replaces [removedLines] lines at [startLine] with [inserted], without line endings. */
+    fun edit(startLine: Int, removedLines: Int, inserted: List<String>) {
+        check(handle != 0L) { "Line highlighter closed" }
+        val array = JSONArray()
+        inserted.forEach(array::put)
+        Markit.nativeLineEdit(handle, startLine, removedLines, array.toString())
+    }
+    /** One token list per line in `startLine until endLine`. */
+    fun tokens(startLine: Int, endLine: Int): List<List<MarkitToken>> {
+        check(handle != 0L) { "Line highlighter closed" }
+        val lines = JSONArray(Markit.nativeLineTokens(handle, startLine, endLine))
+        return List(lines.length()) { line ->
+            val tokens = lines.getJSONArray(line)
+            List(tokens.length()) { index ->
+                val token = tokens.getJSONObject(index)
+                MarkitToken(token.getString("text"), token.getString("light"), token.getString("dark"))
+            }
+        }
+    }
+    @Synchronized override fun close() { if (handle != 0L) { Markit.nativeFreeLineHighlighter(handle); handle = 0 } }
 }

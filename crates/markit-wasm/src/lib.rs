@@ -105,3 +105,41 @@ pub fn highlight_grammar(source: &str, language: &str) -> Result<String, JsValue
         .ok_or_else(|| JsValue::from_str("Build with the grammars feature"))?;
     Ok(serde_json::to_string(code.as_ref()).expect("serializable code"))
 }
+
+/// Incremental grammar highlighting for editors. Build with the `grammars`
+/// feature. `tokens` returns one JSON array of `{ text, light, dark }` tokens
+/// per line, without line endings.
+#[cfg(feature = "grammars")]
+#[wasm_bindgen]
+pub struct LineHighlighter {
+    inner: markit::LineHighlighter,
+}
+
+#[cfg(feature = "grammars")]
+#[wasm_bindgen]
+impl LineHighlighter {
+    #[wasm_bindgen(constructor)]
+    pub fn new(language: &str) -> LineHighlighter {
+        LineHighlighter {
+            inner: markit::LineHighlighter::new(language),
+        }
+    }
+
+    #[wasm_bindgen(js_name = setText)]
+    pub fn set_text(&mut self, text: &str) {
+        self.inner.set_text(text);
+    }
+
+    /// Replaces `removedLines` lines at `startLine` with `inserted`, given
+    /// without line endings.
+    pub fn edit(&mut self, start_line: usize, removed_lines: usize, inserted: Vec<String>) {
+        let inserted: Vec<&str> = inserted.iter().map(String::as_str).collect();
+        self.inner.edit(start_line, removed_lines, &inserted);
+    }
+
+    /// Tokens for the lines in `startLine..endLine`.
+    pub fn tokens(&mut self, start_line: usize, end_line: usize) -> Result<String, JsValue> {
+        serde_json::to_string(&self.inner.tokens(start_line, end_line))
+            .map_err(|_| JsValue::from_str("Could not encode tokens"))
+    }
+}
