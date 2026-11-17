@@ -1,5 +1,4 @@
 use super::*;
-use crate::line::*;
 
 #[test]
 fn binary_exports_preserve_plan_and_validate_borrowed_requests() {
@@ -189,64 +188,4 @@ fn patch_stream_sends_fence_extensions() {
     unsafe { markit_stream_free(handle) };
     let error = unsafe { markit_stream_append_patch(ptr::null_mut(), ptr::null(), 0, 1) };
     assert_eq!(error.status, 2);
-}
-
-#[test]
-fn line_highlighter_handles_tokens_and_edits() {
-    let language = b"rust";
-    let handle = unsafe { markit_line_highlighter_new(language.as_ptr(), language.len()) };
-    #[cfg(not(feature = "grammars"))]
-    {
-        assert!(handle.is_null());
-        let tokens = unsafe { markit_line_highlighter_tokens(handle, 0, 1) };
-        assert_eq!(tokens.status, 2);
-        unsafe { markit_line_highlighter_free(handle) };
-    }
-    #[cfg(feature = "grammars")]
-    {
-        assert!(!handle.is_null());
-        let read = |buffer: MarkitBuffer| -> serde_json::Value {
-            assert_eq!(buffer.status, 0);
-            let bytes = unsafe { slice::from_raw_parts(buffer.data, buffer.len) }.to_vec();
-            unsafe { markit_buffer_free(buffer) };
-            serde_json::from_slice(&bytes).unwrap()
-        };
-        let source = "fn main() {\n    let value = 1;\n}\n";
-        assert_eq!(
-            unsafe { markit_line_highlighter_set_text(handle, source.as_ptr(), source.len()) },
-            0
-        );
-        let tokens = read(unsafe { markit_line_highlighter_tokens(handle, 0, 1) });
-        let first: String = tokens[0]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|token| token["text"].as_str().unwrap())
-            .collect();
-        assert_eq!(first, "fn main() {");
-        let second = "    let changed = true;";
-        let pointers = [second.as_ptr()];
-        let lengths = [second.len()];
-        let edit = MarkitLineEdit {
-            start_line: 1,
-            removed_lines: 1,
-            lines: pointers.as_ptr(),
-            lengths: lengths.as_ptr(),
-            count: 1,
-        };
-        assert_eq!(unsafe { markit_line_highlighter_edit(handle, &edit) }, 0);
-        let tokens = read(unsafe { markit_line_highlighter_tokens(handle, 0, 3) });
-        let changed: String = tokens[1]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|token| token["text"].as_str().unwrap())
-            .collect();
-        assert_eq!(changed, second);
-        assert_eq!(
-            unsafe { markit_line_highlighter_edit(handle, ptr::null()) },
-            2
-        );
-        unsafe { markit_line_highlighter_free(handle) };
-    }
 }

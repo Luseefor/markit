@@ -16,8 +16,13 @@ pub struct MarkitLineEdit {
 /// Opaque incremental highlighter. Free with markit_line_highlighter_free.
 pub struct MarkitLineHighlighter {
     #[cfg(feature = "grammars")]
-    inner: markit::LineHighlighter,
+    pub(crate) inner: markit::LineHighlighter,
 }
+
+// SAFETY: a handle is used by one caller at a time. Its parse checkpoints own
+// their onig match regions, hold no thread-local references, and use Arc for
+// shared colors, so moving the handle to another thread moves only owned state.
+unsafe impl Send for MarkitLineHighlighter {}
 
 /// Creates an incremental highlighter for a language, or null for invalid
 /// UTF-8, a null language, or a build without full grammars. Free exactly
@@ -137,6 +142,64 @@ pub unsafe extern "C" fn markit_line_highlighter_edit(
     .unwrap_or(3)
 }
 
+/// Sets how many lines one markit_line_highlighter_tokens call may parse.
+///
+/// # Safety
+/// Same handle requirements as markit_line_highlighter_set_text.
+#[no_mangle]
+pub unsafe extern "C" fn markit_line_highlighter_set_budget(
+    handle: *mut MarkitLineHighlighter,
+    budget: usize,
+) -> u32 {
+    if handle.is_null() {
+        return 2;
+    }
+    catch_unwind(|| {
+        #[cfg(feature = "grammars")]
+        {
+            // SAFETY: the caller owns a live handle used by one caller at a time.
+            unsafe { &mut (*handle).inner }.set_budget(budget);
+            0
+        }
+        #[cfg(not(feature = "grammars"))]
+        {
+            let _ = (handle, budget);
+            2
+        }
+    })
+    .unwrap_or(3)
+}
+
+/// Parses up to `max_lines` more lines without asking for tokens. Returns 1
+/// while work remains, 0 when every line is parsed, 2 for a null handle and 3
+/// on a panic.
+///
+/// # Safety
+/// Same handle requirements as markit_line_highlighter_set_text.
+#[no_mangle]
+pub unsafe extern "C" fn markit_line_highlighter_advance(
+    handle: *mut MarkitLineHighlighter,
+    max_lines: usize,
+) -> u32 {
+    if handle.is_null() {
+        return 2;
+    }
+    catch_unwind(|| {
+        #[cfg(feature = "grammars")]
+        {
+            // SAFETY: the caller owns a live handle used by one caller at a time.
+            let more = unsafe { &mut (*handle).inner }.advance(max_lines);
+            u32::from(more)
+        }
+        #[cfg(not(feature = "grammars"))]
+        {
+            let _ = (handle, max_lines);
+            2
+        }
+    })
+    .unwrap_or(3)
+}
+
 /// JSON array of token arrays for `start_line..end_line`, one per line. Each
 /// token has `text`, `light` and `dark`, and lines carry no ending.
 ///
@@ -186,6 +249,20 @@ mod tests {
     use super::*;
     use crate::markit_buffer_free;
     use std::slice;
+
+    #[cfg(feature = "grammars")]
+    fn highlighter_edit(handle: *mut MarkitLineHighlighter, line: &str) {
+        let pointers = [line.as_ptr()];
+        let lengths = [line.len()];
+        let edit = MarkitLineEdit {
+            start_line: 2,
+            removed_lines: 1,
+            lines: pointers.as_ptr(),
+            lengths: lengths.as_ptr(),
+            count: 1,
+        };
+        assert_eq!(unsafe { markit_line_highlighter_edit(handle, &edit) }, 0);
+    }
 
     #[test]
     fn line_highlighter_handles_tokens_and_edits() {
@@ -239,8 +316,28 @@ mod tests {
                 .map(|token| token["text"].as_str().unwrap())
                 .collect();
             assert_eq!(changed, second);
+            assert_eq!(unsafe { markit_line_highlighter_set_budget(handle, 1) }, 0);
+            highlighter_edit(handle, "    let later = true;");
+            let _ = read(unsafe { markit_line_highlighter_tokens(handle, 0, 3) });
+            assert_eq!(unsafe { markit_line_highlighter_advance(handle, 10) }, 0);
+            let address = handle as usize;
+            let json = std::thread::spawn(move || {
+                let handle = address as *mut MarkitLineHighlighter;
+                let buffer = unsafe { markit_line_highlighter_tokens(handle, 0, 1) };
+                assert_eq!(buffer.status, 0);
+                let bytes = unsafe { slice::from_raw_parts(buffer.data, buffer.len) }.to_vec();
+                unsafe { markit_buffer_free(buffer) };
+                serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()
+            })
+            .join()
+            .unwrap();
+            assert_eq!(json[0].as_array().unwrap().len(), 5);
             assert_eq!(
                 unsafe { markit_line_highlighter_edit(handle, ptr::null()) },
+                2
+            );
+            assert_eq!(
+                unsafe { markit_line_highlighter_set_budget(ptr::null_mut(), 1) },
                 2
             );
             unsafe { markit_line_highlighter_free(handle) };

@@ -142,4 +142,15 @@ impl LineHighlighter {
         serde_json::to_string(&self.inner.tokens(start_line, end_line))
             .map_err(|_| JsValue::from_str("Could not encode tokens"))
     }
+
+    /// Sets how many lines one `tokens` call may parse.
+    #[wasm_bindgen(js_name = setBudget)]
+    pub fn set_budget(&mut self, budget: usize) {
+        self.inner.set_budget(budget);
+    }
+
+    /// Parses up to `maxLines` more lines. True while work remains.
+    pub fn advance(&mut self, max_lines: usize) -> bool {
+        self.inner.advance(max_lines)
+    }
 }
