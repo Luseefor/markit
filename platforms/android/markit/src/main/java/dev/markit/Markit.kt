@@ -113,7 +113,7 @@ class LineHighlighter(language: String) : Closeable {
     fun edit(startLine: Int, removedLines: Int, inserted: List<String>) {
         check(handle != 0L) { "Line highlighter closed" }
         val array = JSONArray()
-        inserted.forEach(array::put)
+        inserted.forEach { array.put(it) }
         Markit.nativeLineEdit(handle, startLine, removedLines, array.toString())
     }
     /** One token list per line in `startLine until endLine`. */
