@@ -21,9 +21,10 @@ impl LineHighlighter {
             .next_back()
             .map(|(at, checkpoint)| (*at, checkpoint.offset))
             .unwrap_or((0, 0));
-        for index in from..line {
-            offset += self.lines[index].len;
-        }
+        offset += self.lines[from..line]
+            .iter()
+            .map(|line| line.len)
+            .sum::<usize>();
         offset
     }
 

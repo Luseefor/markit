@@ -1,4 +1,7 @@
-use std::{panic::catch_unwind, ptr, slice};
+use std::{panic::catch_unwind, ptr};
+
+#[cfg(feature = "grammars")]
+use std::slice;
 
 use crate::{input, MarkitBuffer};
 
