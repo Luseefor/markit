@@ -264,7 +264,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "markit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64",
  "emojis",
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "markit-ffi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "jni",
  "markit",
@@ -290,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "markit-wasm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "markit",
  "serde_json",
