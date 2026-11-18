@@ -13,6 +13,8 @@ mod github;
 mod grammar;
 mod highlight;
 mod html;
+#[cfg(feature = "grammars")]
+mod line_highlighter;
 mod math;
 #[cfg(not(target_arch = "wasm32"))]
 mod math_raster;
@@ -31,6 +33,8 @@ pub use highlight::{
     code_document_json, for_each_code_span, highlight, highlight_json, highlight_packed,
     language_alias, BorrowedCodeSpan, CodeToken, HighlightedCode,
 };
+#[cfg(feature = "grammars")]
+pub use line_highlighter::LineHighlighter;
 
 /// Optional full Sublime grammars. Enable the `grammars` Cargo feature.
 pub fn highlight_grammar(source: &str, language: &str) -> Option<std::sync::Arc<HighlightedCode>> {

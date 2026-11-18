@@ -35,6 +35,11 @@ emojis = { version = "0.9.1", default-features = false }
 name = "throughput"
 harness = false
 
+[[bench]]
+name = "line_highlighter"
+harness = false
+required-features = ["grammars"]
+
 [features]
 default = []
 grammars = ["dep:syntect", "dep:two-face"]

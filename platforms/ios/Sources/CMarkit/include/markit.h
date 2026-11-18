@@ -40,6 +40,26 @@ MarkitBuffer markit_render_binary(const uint8_t *source, size_t len);
    docs/binary-transport.md. AGENT documents use the same tags. */
 MarkitBuffer markit_render_binary_flavor(const uint8_t *source, size_t len, uint32_t flavor);
 MarkitBuffer markit_code_binary(const MarkitCodeRequest *request);
+/* Incremental grammar highlighting for editors. NULL from new when full
+   grammars are not compiled in, the language is invalid UTF-8, or allocation
+   fails. Lines in MarkitLineEdit are UTF-8 without line endings. Tokens are a
+   JSON array of per-line arrays of {text, light, dark}, one for each line in
+   [start_line, end_line). A handle is used by one thread at a time, but it may
+   move between threads; free it exactly once. */
+typedef struct MarkitLineHighlighter MarkitLineHighlighter;
+typedef struct {
+    size_t start_line; size_t removed_lines;
+    const uint8_t *const *lines; const size_t *lengths; size_t count;
+} MarkitLineEdit;
+MarkitLineHighlighter *markit_line_highlighter_new(const uint8_t *language, size_t len);
+uint32_t markit_line_highlighter_set_text(MarkitLineHighlighter *handle, const uint8_t *source, size_t len);
+uint32_t markit_line_highlighter_edit(MarkitLineHighlighter *handle, const MarkitLineEdit *edit);
+/* Sets how many lines one tokens call may parse (default 2000). */
+uint32_t markit_line_highlighter_set_budget(MarkitLineHighlighter *handle, size_t budget);
+/* Parses up to max_lines more lines: 1 while work remains, 0 when done. */
+uint32_t markit_line_highlighter_advance(MarkitLineHighlighter *handle, size_t max_lines);
+MarkitBuffer markit_line_highlighter_tokens(MarkitLineHighlighter *handle, size_t start_line, size_t end_line);
+void markit_line_highlighter_free(MarkitLineHighlighter *handle);
 void markit_buffer_free(MarkitBuffer buffer);
 typedef struct MarkitStream MarkitStream;
 MarkitStream *markit_stream_new(void);

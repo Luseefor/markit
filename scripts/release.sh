@@ -6,15 +6,17 @@
 #   scripts/release.sh --publish  # then create the release (needs gh, signed in)
 #
 # Artifacts:
-#   markit-web-<version>.tgz   the @markit/web npm package (renderer, worker, Wasm, types, licences)
-#   markit-ios-<version>.zip   the Swift package (platforms/ios) with MarkitCore.xcframework built
-#   SHA256SUMS                 checksums of both
+#   markit-web-<version>.tgz     the @markit/web npm package (renderer, worker, Wasm, types, licences)
+#   markit-ios-<version>.zip     the Swift package (platforms/ios) with MarkitCore.xcframework built
+#   markit-android-<version>.zip the Gradle library (platforms/android) with both JNI ABIs built
+#   SHA256SUMS                   checksums of every artifact
 #
 # The version is Cargo.toml's, and web/package.json must match. The tree must be clean, so a
 # release is exactly a commit. Toolchains are named, not taken from PATH: WEB_TOOLCHAIN (default
 # 1.95.0) needs the wasm32 target and wasm-bindgen-cli at Cargo.lock's version; IOS_TOOLCHAIN
 # (default 1.91.1) needs the iOS targets, and stays older because Xcode's linker can't read
-# objects from a newer LLVM.
+# objects from a newer LLVM. Android reuses build-android.sh's NDK discovery and the web
+# toolchain; without an NDK it is skipped.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -39,6 +41,17 @@ toolchain_path() {
     exit 1
   }
   dirname "$cargo"
+}
+android_ndk() {
+  local sdk ndk candidate
+  sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
+  ndk="${ANDROID_NDK_HOME:-$sdk/ndk/27.1.12297006}"
+  if [ ! -d "$ndk" ]; then
+    for candidate in "$sdk"/ndk/*; do
+      if [ -d "$candidate/toolchains/llvm" ]; then ndk="$candidate"; fi
+    done
+  fi
+  if [ -d "$ndk/toolchains/llvm" ]; then printf '%s\n' "$ndk"; fi
 }
 web_bin=$(toolchain_path "${WEB_TOOLCHAIN:-1.95.0}")
 ios_bin=$(toolchain_path "${IOS_TOOLCHAIN:-1.91.1}")
@@ -77,6 +90,24 @@ else
   echo "Skipping iOS: it builds on macOS only" >&2
 fi
 
+android_ndk_path=$(android_ndk)
+if [ -n "$android_ndk_path" ]; then
+  echo "== Android (Rust $("$web_bin/rustc" --version))"
+  PATH="$web_bin:$PATH" MARKIT_FEATURES="${MARKIT_FEATURES:-}" ./scripts/build-android.sh
+  android_archive="$out/markit-android-$version.zip"
+  (cd platforms && zip -qry "../$android_archive" android \
+    -x 'android/build/*' 'android/.gradle/*' 'android/local.properties' '*build/*' 'android/.idea/*')
+  android_files=$(unzip -l "$android_archive")
+  for abi in arm64-v8a x86_64; do
+    grep -q "android/markit/src/main/jniLibs/$abi/libmarkit_ffi.so" <<<"$android_files" || {
+      echo "$android_archive is missing the $abi libmarkit_ffi.so" >&2
+      exit 1
+    }
+  done
+else
+  echo "Skipping Android: no NDK found (set ANDROID_HOME or ANDROID_NDK_HOME)" >&2
+fi
+
 (cd "$out" && shasum -a 256 markit-* > SHA256SUMS)
 cat "$out/SHA256SUMS"
 
@@ -89,5 +120,5 @@ if $publish; then
   gh release create "$tag" "$out"/markit-* "$out/SHA256SUMS" \
     --target "$(git rev-parse HEAD)" \
     --title "markit $version" \
-    --notes "Prebuilt markit $version from $(git rev-parse --short HEAD): the @markit/web package (renderer, worker, Wasm, types and licences) and the iOS Swift package with MarkitCore.xcframework. Checksums are in SHA256SUMS."
+    --notes "Prebuilt markit $version from $(git rev-parse --short HEAD): the @markit/web package (renderer, worker, Wasm, types and licences), the iOS Swift package with MarkitCore.xcframework, and the Android Gradle library with arm64-v8a and x86_64 JNI libraries. Checksums are in SHA256SUMS."
 fi

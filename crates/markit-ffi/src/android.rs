@@ -3,6 +3,9 @@ use jni::{
     sys::{jboolean, jbyteArray, jint, jlong, jstring},
     JNIEnv,
 };
+#[cfg(feature = "grammars")]
+mod line;
+
 use std::{
     collections::HashMap,
     ptr,
