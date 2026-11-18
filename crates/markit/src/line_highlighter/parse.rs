@@ -92,8 +92,6 @@ impl LineHighlighter {
             if parsed >= max_parses {
                 break;
             }
-            #[cfg(test)]
-            super::PARSED_LINES.with(|lines| lines.set(lines.get() + 1));
             let len = self.lines[line].len;
             let text = &self.text[offset..offset + len];
             let cached = line >= cache_from && line < cache_to;
@@ -103,6 +101,8 @@ impl LineHighlighter {
                     self.runs.insert(line, hash, CachedRuns::plain(len));
                 }
             } else if cached && !self.runs.contains(line) {
+                #[cfg(test)]
+                super::PARSED_LINES.with(|lines| lines.set(lines.get() + 1));
                 let Some(runs) = parse_into_runs(&mut boundary, line, text, syntaxes, light, dark)
                 else {
                     break;
@@ -110,6 +110,8 @@ impl LineHighlighter {
                 let hash = self.lines[line].hash;
                 self.runs.insert(line, hash, runs);
             } else {
+                #[cfg(test)]
+                super::PARSED_LINES.with(|lines| lines.set(lines.get() + 1));
                 let Some(()) = parse_into_state(&mut boundary, line, text, syntaxes) else {
                     break;
                 };

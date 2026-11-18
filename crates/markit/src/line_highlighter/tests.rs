@@ -1,11 +1,6 @@
 use super::*;
 use crate::highlight_grammar;
 use serde::Deserialize;
-use std::{
-    hint::black_box,
-    time::{Duration, Instant},
-};
-
 const PLAIN_LIGHT: &str = "#24292f";
 const PLAIN_DARK: &str = "#c9d1d9";
 
@@ -246,25 +241,30 @@ fn inserted_newlines_split_into_lines() {
 }
 
 #[test]
-fn a_400kb_line_stays_plain_and_edits_stay_fast() {
+fn a_400kb_line_stays_plain_without_grammar_parsing() {
     let long = "x".repeat(400 * 1024);
-    let source = format!("fn main() {{\n    let value = \"{long}\";\n}}\n");
+    let source = format!("fn main() {{\n    let value = \"{long}\";\n    let after = 1;\n}}\n");
     let mut highlighter = LineHighlighter::new("rust");
     highlighter.set_text(&source);
-    let tokens = highlighter.tokens(0, 4);
-    let line = &tokens[1];
-    assert_eq!(line.len(), 1);
-    assert_eq!(line[0].light, PLAIN_LIGHT);
-    assert_eq!(line[0].dark, PLAIN_DARK);
+    let before = parsed_line_count();
+    let tokens = highlighter.tokens(0, 5);
+    assert_eq!(parsed_line_count() - before, 4);
+    assert_eq!(tokens[1].len(), 1);
+    assert_eq!(tokens[1][0].light, PLAIN_LIGHT);
+    assert_eq!(tokens[1][0].dark, PLAIN_DARK);
+    assert_eq!(contents(&tokens)[2], "    let after = 1;");
+    assert_ne!(colour_of(&tokens, 2, "let"), PLAIN_LIGHT);
+
     let replacement = format!("    let changed = \"{long} y\";");
-    let mut best = Duration::MAX;
-    for _ in 0..3 {
-        let start = Instant::now();
-        highlighter.edit(1, 1, &[replacement.as_str()]);
-        black_box(highlighter.tokens(0, 4));
-        best = best.min(start.elapsed());
-    }
-    assert!(best < Duration::from_millis(10));
+    highlighter.edit(1, 1, &[replacement.as_str()]);
+    let before = parsed_line_count();
+    let tokens = highlighter.tokens(0, 5);
+    assert_eq!(parsed_line_count() - before, 4);
+    assert_eq!(tokens[1].len(), 1);
+    assert_eq!(tokens[1][0].light, PLAIN_LIGHT);
+    assert_eq!(tokens[1][0].dark, PLAIN_DARK);
+    assert_eq!(contents(&tokens)[2], "    let after = 1;");
+    assert_ne!(colour_of(&tokens, 2, "let"), PLAIN_LIGHT);
 }
 
 #[test]
