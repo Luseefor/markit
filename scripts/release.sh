@@ -67,8 +67,9 @@ web_archive="$out/markit-web-$version.tgz"
 [ -f "$web_archive" ] || { echo "npm pack did not write $web_archive" >&2; exit 1; }
 # Listed once and searched afterwards: under pipefail, `grep -q` closing a pipe early would fail it.
 web_files=$(tar -tzf "$web_archive")
-for required in package/pkg/markit_wasm_bg.wasm package/pkg/markit_wasm.js package/worker.js \
-  package/licenses/THIRD_PARTY_NOTICES.md package/react.js package/index.d.ts; do
+for required in package/pkg/markit_wasm_bg.wasm package/pkg/markit_wasm.js \
+  package/pkg-grammars/markit_wasm_bg.wasm package/pkg-grammars/markit_wasm.js \
+  package/worker.js package/licenses/THIRD_PARTY_NOTICES.md package/react.js package/index.d.ts; do
   grep -qx "$required" <<<"$web_files" || {
     echo "$web_archive is missing $required" >&2
     exit 1

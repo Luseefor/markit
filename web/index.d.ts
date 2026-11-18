@@ -34,6 +34,11 @@ export interface MarkitOptions {
    * Without it the inline engine fetches the file next to `pkg/markit_wasm.js`.
    * One inline engine serves the whole page or process; the first `wasm` given wins. */
   wasm?: BufferSource | WebAssembly.Module;
+  /** Inline engine only: the grammar Wasm (`pkg-grammars/markit_wasm_bg.wasm` bytes or a
+   * compiled module). It is loaded only when LineHighlighter or `grammar: true`
+   * highlighting first needs it; otherwise the glue fetches it next to
+   * `pkg-grammars/markit_wasm.js`. */
+  grammarWasm?: BufferSource | WebAssembly.Module;
   /** WebGPU draws eligible large ASCII source views. Auto currently uses DOM until benchmarked. */
   codeRendering?: 'auto' | 'dom' | 'webgpu';
   code?: MarkitCodeOptions;
@@ -77,7 +82,33 @@ export class MarkitRenderer {
   refreshImages(): void;
   destroy(): void;
 }
+/** Incremental grammar highlighting for editors. It uses the same shared worker,
+ * Wasm instance, and preload path as `MarkitRenderer`; pass the same `workerURL`,
+ * `worker`, and `wasm` options to share an instance. Lines split on `\n` only,
+ * and tokens cover a line without its ending. The package's Wasm build includes
+ * the grammar highlighter. */
+export class LineHighlighter {
+  /** `language` names a grammar, for example `"rust"` or `"ts"`. */
+  constructor(language: string, options?: Pick<MarkitOptions, 'workerURL' | 'worker' | 'wasm' | 'grammarWasm'>);
+  /** Replaces the whole text. A `\r` before a `\n` is part of that line's ending. */
+  setText(text: string): Promise<void>;
+  /** Replaces `removedLines` lines at `startLine` with `inserted`. Inserted entries
+   * carry no line endings; an entry containing `\n` becomes several lines. */
+  edit(startLine: number, removedLines: number, inserted: string[]): Promise<void>;
+  /** Tokens for the lines in `startLine..endLine`, one list per line, without endings.
+   * Lines past the parse budget come back as plain tokens. */
+  tokens(startLine: number, endLine: number): Promise<CodeToken[][]>;
+  /** Sets how many lines one `tokens` call may parse. The default is 2,000. */
+  setBudget(budget: number): Promise<void>;
+  /** Parses up to `maxLines` more lines; resolves true while work remains. */
+  advance(maxLines: number): Promise<boolean>;
+  /** Releases the native highlighter. Safe to call more than once. */
+  free(): Promise<void>;
+  /** Frees the native highlighter. */
+  dispose(): Promise<void>;
+}
+
 /** Terminates the shared workers. Live renderers start a new one on their next request. */
 export function terminateMarkitWorkers(): void;
 /** Starts the shared worker (or, with `worker: 'inline'`, the in-process Wasm) ahead of the first render. */
-export function preloadMarkit(options?: Pick<MarkitOptions, 'workerURL' | 'worker' | 'wasm'>): void;
+export function preloadMarkit(options?: Pick<MarkitOptions, 'workerURL' | 'worker' | 'wasm' | 'grammarWasm'>): void;

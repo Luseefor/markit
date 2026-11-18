@@ -1,6 +1,6 @@
 {
   "name": "@markit/web",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "exports": {
     ".": {
@@ -17,6 +17,7 @@
       "types": "./pkg/markit_wasm.d.ts",
       "import": "./pkg/markit_wasm.js"
     },
+    "./pkg-grammars/*": "./pkg-grammars/*",
     "./worker.js": "./worker.js",
     "./render-core.js": "./render-core.js",
     "./package.json": "./package.json"
@@ -24,6 +25,7 @@
   "files": [
     "index.js",
     "engine.js",
+    "line-highlighter.js",
     "render-core.js",
     "frame.js",
     "dom-morph.js",
@@ -38,6 +40,7 @@
     "math-selection.js",
     "style.css",
     "pkg",
+    "pkg-grammars",
     "licenses",
     "index.d.ts",
     "react.js",

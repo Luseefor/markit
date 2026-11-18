@@ -20,8 +20,8 @@ class MarkitController {
     if (this.#element === element) return;
     this.#detach();
     this.#element = element;
-    const { workerURL, worker, wasm, codeRendering, code, flavor, lazy } = this.#latest.current;
-    const options = { workerURL, worker, wasm, codeRendering, code, flavor };
+    const { workerURL, worker, wasm, grammarWasm, codeRendering, code, flavor, lazy } = this.#latest.current;
+    const options = { workerURL, worker, wasm, grammarWasm, codeRendering, code, flavor };
     // Callbacks are read when used, so new closures never recreate the renderer.
     for (const name of OPTIONS) Object.defineProperty(options, name, { enumerable: true, get: () => this.#latest.current[name] });
     this.#renderer = new MarkitRenderer(element, options);
@@ -93,9 +93,9 @@ export function useMarkit(options = {}) {
 /** Renders `markdown` into a div. Re-rendering with longer text streams it;
  * `finalized={false}` keeps the last block open. */
 export const Markit = memo(forwardRef(function Markit(props, ref) {
-  const { markdown = '', finalized = true, lazy, workerURL, worker, wasm, codeRendering, code, flavor,
+  const { markdown = '', finalized = true, lazy, workerURL, worker, wasm, grammarWasm, codeRendering, code, flavor,
     onLink, onReference, resolveImage, resolveMedia, renderDiagram, onTask, onError, onRender, as = 'div', ...rest } = props;
-  const markit = useMarkit({ lazy, workerURL, worker, wasm, codeRendering, code, flavor,
+  const markit = useMarkit({ lazy, workerURL, worker, wasm, grammarWasm, codeRendering, code, flavor,
     onLink, onReference, resolveImage, resolveMedia, renderDiagram, onTask, onError, onRender });
   useImperativeHandle(ref, () => markit, [markit]);
   useEffect(() => { markit.render(markdown, { finalized }); }, [markit, markdown, finalized]);

@@ -72,12 +72,17 @@ const resync = () => Object.assign(new Error('Markit stream out of sync'), { cod
 
 /**
  * Renderer streams multiplexed over one Wasm instance. `wasm` is the initialized
- * wasm-bindgen module (`MarkdownStream`, `highlightCodePacked`, `highlightGrammar`).
- * `handle` answers one request: `{ result, transfers }`, or undefined for a release.
+ * wasm-bindgen module (`MarkdownStream`, `highlightCodePacked`). `loadGrammar`
+ * lazily initializes the grammar module for LineHighlighter and `grammar: true`
+ * highlighting; rendering never calls it. `handle` answers one request:
+ * `{ result, transfers }`, or undefined for a release.
  */
-export function createMarkitCore(wasm) {
+export function createMarkitCore(wasm, loadGrammar) {
   /** stream id -> { stream, previous, flavor } */
   const streams = new Map();
+  /** highlighter id -> wasm LineHighlighter */
+  const highlighters = new Map();
+  let nextHighlighter = 0;
   const release = id => {
     streams.get(id)?.stream.free();
     streams.delete(id);
@@ -107,12 +112,56 @@ export function createMarkitCore(wasm) {
     entry.previous += delta;
     return decodeWebPatch(packed);
   };
-  const handle = data => {
+  const highlighter = data => {
+    const line = highlighters.get(data.highlighter);
+    if (!line) throw new Error('Closed line highlighter');
+    return line;
+  };
+  const handleLine = async data => {
+    switch (data.type) {
+      case 'lineNew': {
+        const grammar = await loadGrammar();
+        if (typeof grammar.LineHighlighter !== 'function') {
+          throw new Error('The grammar Wasm build has no LineHighlighter');
+        }
+        const id = ++nextHighlighter;
+        highlighters.set(id, new grammar.LineHighlighter(data.language));
+        return id;
+      }
+      case 'lineSetText':
+        highlighter(data).setText(data.text);
+        return undefined;
+      case 'lineEdit':
+        highlighter(data).edit(data.startLine, data.removedLines, data.inserted);
+        return undefined;
+      case 'lineTokens':
+        return JSON.parse(highlighter(data).tokens(data.startLine, data.endLine));
+      case 'lineSetBudget':
+        highlighter(data).setBudget(data.budget);
+        return undefined;
+      case 'lineAdvance':
+        return highlighter(data).advance(data.maxLines);
+      case 'lineFree': {
+        const line = highlighters.get(data.highlighter);
+        if (line) { highlighters.delete(data.highlighter); line.free(); }
+        return undefined;
+      }
+      default:
+        throw new Error(`Unknown line highlighter request: ${data.type}`);
+    }
+  };
+  const handle = async data => {
     if (data.type === 'release') { release(data.stream); return undefined; }
     if (data.type === 'highlight') {
-      if (data.grammar) return { result: JSON.parse(wasm.highlightGrammar(data.source, data.language)), transfers: [] };
+      if (data.grammar) {
+        const grammar = await loadGrammar();
+        return { result: JSON.parse(grammar.highlightGrammar(data.source, data.language)), transfers: [] };
+      }
       const ranges = wasm.highlightCodePacked(data.source, data.language);
       return { result: ranges, transfers: [ranges.buffer] };
+    }
+    if (typeof data.type === 'string' && data.type.startsWith('line')) {
+      return { result: await handleLine(data), transfers: [] };
     }
     try {
       const patch = render(data);
@@ -123,5 +172,5 @@ export function createMarkitCore(wasm) {
       throw error;
     }
   };
-  return { handle, streams: () => streams.size };
+  return { handle, streams: () => streams.size, highlighters: () => highlighters.size };
 }
