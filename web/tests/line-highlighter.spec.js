@@ -28,6 +28,18 @@ test('rendering without LineHighlighter never fetches the grammar Wasm', async (
   expect(requests.some(path => path.startsWith('/pkg-grammars/'))).toBe(false);
 });
 
+test('grammar highlighting loads the grammar Wasm only when requested', async ({ page }) => {
+  test.setTimeout(120000);
+  const requests = [];
+  page.on('request', request => requests.push(new URL(request.url()).pathname));
+  await page.goto('/');
+  await expect(page.locator('#status')).toContainText('Ready', { timeout: 60000 });
+  expect(requests.some(path => path.startsWith('/pkg-grammars/'))).toBe(false);
+  const tokens = await page.evaluate(async () => (await window.renderer.highlight('const value = 1;\n', 'ts', { grammar: true })).tokens);
+  expect(tokens.length).toBeGreaterThan(1);
+  expect(requests.some(path => path.startsWith('/pkg-grammars/'))).toBe(true);
+});
+
 test('LineHighlighter loads the grammar Wasm lazily in the shared worker and matches per-line tokens', async ({ page }) => {
   test.setTimeout(180000);
   const requests = [];
