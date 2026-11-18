@@ -19,9 +19,14 @@ pub struct MarkitLineHighlighter {
     pub(crate) inner: markit::LineHighlighter,
 }
 
-// SAFETY: a handle is used by one caller at a time. Its parse checkpoints own
-// their onig match regions, hold no thread-local references, and use Arc for
-// shared colors, so moving the handle to another thread moves only owned state.
+// SAFETY: A handle is used by one caller at a time. `onig::Regex`, shared
+// through the syntax set, is Send + Sync. The only non-Send part of ParseState
+// is the `onig::Region` match buffer in its capture stack: it owns raw pointers
+// into onig-allocated memory, but those pointers are neither shared with another
+// handle nor accessed concurrently, because calls are serialized by the caller.
+// Moving the owning handle between threads while no call is in flight therefore
+// moves only owned allocations, and freeing or reusing them on the new thread is
+// sound. Checkpoints and colors use Arc.
 unsafe impl Send for MarkitLineHighlighter {}
 
 /// Creates an incremental highlighter for a language, or null for invalid
@@ -342,5 +347,51 @@ mod tests {
             );
             unsafe { markit_line_highlighter_free(handle) };
         }
+    }
+
+    #[cfg(feature = "grammars")]
+    #[test]
+    fn line_highlighter_moves_across_three_threads() {
+        let language = b"rust";
+        let address = std::thread::spawn(move || {
+            let handle = unsafe { markit_line_highlighter_new(language.as_ptr(), language.len()) };
+            assert!(!handle.is_null());
+            handle as usize
+        })
+        .join()
+        .unwrap();
+        let address = std::thread::spawn(move || {
+            let handle = address as *mut MarkitLineHighlighter;
+            let source = "fn main() {}\n";
+            assert_eq!(
+                unsafe { markit_line_highlighter_set_text(handle, source.as_ptr(), source.len()) },
+                0
+            );
+            let line = "fn edited() {}";
+            let pointers = [line.as_ptr()];
+            let lengths = [line.len()];
+            let edit = MarkitLineEdit {
+                start_line: 0,
+                removed_lines: 1,
+                lines: pointers.as_ptr(),
+                lengths: lengths.as_ptr(),
+                count: 1,
+            };
+            assert_eq!(unsafe { markit_line_highlighter_edit(handle, &edit) }, 0);
+            handle as usize
+        })
+        .join()
+        .unwrap();
+        std::thread::spawn(move || {
+            let handle = address as *mut MarkitLineHighlighter;
+            let buffer = unsafe { markit_line_highlighter_tokens(handle, 0, 2) };
+            assert_eq!(buffer.status, 0);
+            unsafe {
+                markit_buffer_free(buffer);
+                markit_line_highlighter_free(handle);
+            }
+        })
+        .join()
+        .unwrap();
     }
 }
