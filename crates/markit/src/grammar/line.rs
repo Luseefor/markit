@@ -45,14 +45,42 @@ pub(crate) struct ParsedLine {
     runs: Vec<Run>,
 }
 type Colors = Arc<(String, String)>;
+#[derive(Clone)]
 struct Run {
     len: usize,
     colors: Colors,
 }
 
-impl ParsedLine {
+/// Style runs for one line, without its parser boundaries. Editors keep a
+/// bounded cache of these for recently requested lines.
+pub(crate) struct CachedRuns {
+    runs: Vec<Run>,
+}
+
+impl CachedRuns {
+    pub(crate) fn plain(len: usize) -> CachedRuns {
+        CachedRuns {
+            runs: vec![Run {
+                len,
+                colors: plain_colors(),
+            }],
+        }
+    }
+
+    pub(crate) fn append_tokens(&self, tokens: &mut Vec<CodeToken>, text: &str, visible: usize) {
+        append_runs(tokens, text, visible, &self.runs);
+    }
+
     pub(crate) fn memory_bytes(&self) -> usize {
         std::mem::size_of::<Self>() + self.runs.capacity() * std::mem::size_of::<Run>()
+    }
+}
+
+impl Boundary {
+    /// Approximate heap bytes, including an allowance for the parser stack
+    /// syntect keeps behind `ParseState`.
+    pub(crate) fn memory_bytes(&self) -> usize {
+        std::mem::size_of::<Self>() + self.path.len() * std::mem::size_of::<Scope>() + 128
     }
 }
 
@@ -131,27 +159,7 @@ fn parse_line(
     dark: &Highlighter<'_>,
 ) -> Option<Arc<ParsedLine>> {
     let mut state = Boundary::clone(before);
-    let operations = state.parser.parse_line(line, syntaxes).ok()?;
-    let mut runs: Vec<Run> = Vec::new();
-    let mut push = |len: usize, colors: Colors| {
-        if let Some(last) = runs.last_mut().filter(|last| last.colors == colors) {
-            last.len += len;
-        } else {
-            runs.push(Run { len, colors });
-        }
-    };
-    let mut pos = 0;
-    for (at, operation) in &operations {
-        let at = (*at).min(line.len());
-        if at > pos {
-            push(at - pos, colors(state.path.as_slice(), light, dark));
-            pos = at;
-        }
-        state.path.apply(operation).ok()?;
-    }
-    if line.len() > pos {
-        push(line.len() - pos, colors(state.path.as_slice(), light, dark));
-    }
+    let runs = parse_into_parts(&mut state, line, syntaxes, Some((light, dark)))?;
     Some(Arc::new(ParsedLine {
         before: before.clone(),
         after: after(before, state),
@@ -190,19 +198,75 @@ pub(crate) fn parse_line_at(
     parse_line(line, before, syntaxes, light, dark)
 }
 
-/// A line too long for the grammar, kept as one plain run with the parser
-/// state unchanged, as `highlight` treats long lines.
-pub(crate) fn plain_line(line: &str, before: &Arc<Boundary>) -> Arc<ParsedLine> {
-    Arc::new(ParsedLine {
-        before: before.clone(),
-        after: before.clone(),
-        len: line.len(),
-        hash: hash_text(line),
-        runs: vec![Run {
-            len: line.len(),
-            colors: plain_colors(),
-        }],
-    })
+/// Parses one line into `state` and returns its style runs.
+pub(crate) fn parse_into_runs(
+    state: &mut Boundary,
+    index: usize,
+    line: &str,
+    syntaxes: &SyntaxSet,
+    light: &Highlighter<'_>,
+    dark: &Highlighter<'_>,
+) -> Option<CachedRuns> {
+    if index > 0 && (line == "\n" || line == "\r\n") {
+        return Some(CachedRuns {
+            runs: vec![Run {
+                len: line.len(),
+                colors: colors(state.path.as_slice(), light, dark),
+            }],
+        });
+    }
+    parse_into_parts(state, line, syntaxes, Some((light, dark))).map(|runs| CachedRuns { runs })
+}
+
+/// Parses one line into `state` without building style runs.
+pub(crate) fn parse_into_state(
+    state: &mut Boundary,
+    index: usize,
+    line: &str,
+    syntaxes: &SyntaxSet,
+) -> Option<()> {
+    if index > 0 && (line == "\n" || line == "\r\n") {
+        return Some(());
+    }
+    parse_into_parts(state, line, syntaxes, None).map(|_| ())
+}
+
+/// Parses a line and applies its scope operations. Style runs are built only
+/// when `theme` is present; state-only lines skip color work and allocation.
+fn parse_into_parts(
+    state: &mut Boundary,
+    line: &str,
+    syntaxes: &SyntaxSet,
+    theme: Option<(&Highlighter<'_>, &Highlighter<'_>)>,
+) -> Option<Vec<Run>> {
+    let operations = state.parser.parse_line(line, syntaxes).ok()?;
+    let mut runs: Vec<Run> = Vec::new();
+    if let Some((light, dark)) = theme {
+        let mut push = |len: usize, colors: Colors| {
+            if let Some(last) = runs.last_mut().filter(|last| last.colors == colors) {
+                last.len += len;
+            } else {
+                runs.push(Run { len, colors });
+            }
+        };
+        let mut pos = 0;
+        for (at, operation) in &operations {
+            let at = (*at).min(line.len());
+            if at > pos {
+                push(at - pos, colors(state.path.as_slice(), light, dark));
+                pos = at;
+            }
+            state.path.apply(operation).ok()?;
+        }
+        if line.len() > pos {
+            push(line.len() - pos, colors(state.path.as_slice(), light, dark));
+        }
+    } else {
+        for (_, operation) in &operations {
+            state.path.apply(operation).ok()?;
+        }
+    }
+    Some(runs)
 }
 
 /// Appends a line's runs as tokens, merging with the last token when the
@@ -213,8 +277,12 @@ pub(crate) fn append_line_tokens(
     visible: usize,
     line: &ParsedLine,
 ) {
+    append_runs(tokens, text, visible, &line.runs);
+}
+
+fn append_runs(tokens: &mut Vec<CodeToken>, text: &str, visible: usize, runs: &[Run]) {
     let mut offset = 0;
-    for run in &line.runs {
+    for run in runs {
         if offset >= visible {
             break;
         }

@@ -12,7 +12,8 @@ use crate::highlight::{language_alias, CodeToken, HighlightedCode};
 
 mod line;
 pub(crate) use line::{
-    append_line_tokens, hash_text, initial, parse_line_at, plain_line, Boundary, ParsedLine,
+    append_line_tokens, hash_text, initial, parse_into_runs, parse_into_state, parse_line_at,
+    Boundary, CachedRuns, ParsedLine,
 };
 
 static SYNTAXES: OnceLock<SyntaxSet> = OnceLock::new();

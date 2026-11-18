@@ -61,7 +61,8 @@ fn main() {
     );
     let retained = highlighter.memory_bytes();
     println!(
-        "retained after edits: {retained} bytes ({:.1} bytes/line)",
-        retained as f64 / LINES as f64
+        "cache after edits: {retained} bytes ({:.1} bytes/line); source text: {:.1} bytes/line",
+        retained as f64 / LINES as f64,
+        source.len() as f64 / LINES as f64
     );
 }
