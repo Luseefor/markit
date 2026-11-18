@@ -6,8 +6,9 @@ import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 
 const wasm = await readFile(new URL('../../pkg/markit_wasm_bg.wasm', import.meta.url));
+const grammarWasm = await readFile(new URL('../../pkg-grammars/markit_wasm_bg.wasm', import.meta.url));
 const { LineHighlighter, MarkitRenderer, preloadMarkit } = await import('../../index.js');
-preloadMarkit({ wasm });
+preloadMarkit({ wasm, grammarWasm });
 
 function perLine(tokens) {
   const lines = [[]];
@@ -30,13 +31,13 @@ test('LineHighlighter exposes incremental grammar tokens and frees', async () =>
   const { window } = new JSDOM('<!doctype html><body></body>');
   const element = window.document.createElement('div');
   window.document.body.append(element);
-  const renderer = new MarkitRenderer(element, { wasm });
+  const renderer = new MarkitRenderer(element, { wasm, grammarWasm });
   const source = 'fn main() {\n    let value = 1;\n    // note\n}\n';
   const changedLine = '    let changed = "x";';
   const changed = `fn main() {\n${changedLine}\n    // note\n}\n`;
   const expected = perLine((await renderer.highlight(changed, 'rust', { grammar: true })).tokens);
 
-  const highlighter = new LineHighlighter('rust', { wasm });
+  const highlighter = new LineHighlighter('rust', { wasm, grammarWasm });
   await highlighter.setText(source);
   await highlighter.edit(1, 1, [changedLine]);
   await highlighter.setBudget(1);

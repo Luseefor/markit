@@ -72,10 +72,12 @@ const resync = () => Object.assign(new Error('Markit stream out of sync'), { cod
 
 /**
  * Renderer streams multiplexed over one Wasm instance. `wasm` is the initialized
- * wasm-bindgen module (`MarkdownStream`, `highlightCodePacked`, `highlightGrammar`).
- * `handle` answers one request: `{ result, transfers }`, or undefined for a release.
+ * wasm-bindgen module (`MarkdownStream`, `highlightCodePacked`). `loadGrammar`
+ * lazily initializes the grammar module for LineHighlighter and `grammar: true`
+ * highlighting; rendering never calls it. `handle` answers one request:
+ * `{ result, transfers }`, or undefined for a release.
  */
-export function createMarkitCore(wasm) {
+export function createMarkitCore(wasm, loadGrammar) {
   /** stream id -> { stream, previous, flavor } */
   const streams = new Map();
   /** highlighter id -> wasm LineHighlighter */
@@ -115,14 +117,15 @@ export function createMarkitCore(wasm) {
     if (!line) throw new Error('Closed line highlighter');
     return line;
   };
-  const handleLine = data => {
+  const handleLine = async data => {
     switch (data.type) {
       case 'lineNew': {
-        if (typeof wasm.LineHighlighter !== 'function') {
-          throw new Error('This Wasm build has no LineHighlighter; build it with grammars');
+        const grammar = await loadGrammar();
+        if (typeof grammar.LineHighlighter !== 'function') {
+          throw new Error('The grammar Wasm build has no LineHighlighter');
         }
         const id = ++nextHighlighter;
-        highlighters.set(id, new wasm.LineHighlighter(data.language));
+        highlighters.set(id, new grammar.LineHighlighter(data.language));
         return id;
       }
       case 'lineSetText':
@@ -147,15 +150,18 @@ export function createMarkitCore(wasm) {
         throw new Error(`Unknown line highlighter request: ${data.type}`);
     }
   };
-  const handle = data => {
+  const handle = async data => {
     if (data.type === 'release') { release(data.stream); return undefined; }
     if (data.type === 'highlight') {
-      if (data.grammar) return { result: JSON.parse(wasm.highlightGrammar(data.source, data.language)), transfers: [] };
+      if (data.grammar) {
+        const grammar = await loadGrammar();
+        return { result: JSON.parse(grammar.highlightGrammar(data.source, data.language)), transfers: [] };
+      }
       const ranges = wasm.highlightCodePacked(data.source, data.language);
       return { result: ranges, transfers: [ranges.buffer] };
     }
     if (typeof data.type === 'string' && data.type.startsWith('line')) {
-      return { result: handleLine(data), transfers: [] };
+      return { result: await handleLine(data), transfers: [] };
     }
     try {
       const patch = render(data);

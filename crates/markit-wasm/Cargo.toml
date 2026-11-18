@@ -14,7 +14,5 @@ wasm-bindgen = "0.2"
 serde_json.workspace = true
 
 [features]
-# Editors reach LineHighlighter through this module, so the web package ships
-# the grammar highlighter by default.
-default = ["grammars"]
+default = []
 grammars = ["markit/grammars"]

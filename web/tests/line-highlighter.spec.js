@@ -17,16 +17,28 @@ function perLine(tokens) {
   return lines;
 }
 
-test('LineHighlighter uses the shared worker Wasm and matches per-line grammar tokens', async ({ page }) => {
-  test.setTimeout(180000);
+test('rendering without LineHighlighter never fetches the grammar Wasm', async ({ page }) => {
+  test.setTimeout(120000);
+  const requests = [];
+  page.on('request', request => requests.push(new URL(request.url()).pathname));
   await page.goto('/');
   await expect(page.locator('#status')).toContainText('Ready', { timeout: 60000 });
-  const result = await page.evaluate(async () => {
+  await page.evaluate(() => window.renderer.render('# no grammar'));
+  await expect(page.locator('#preview h1')).toHaveText('no grammar');
+  expect(requests.some(path => path.startsWith('/pkg-grammars/'))).toBe(false);
+});
+
+test('LineHighlighter loads the grammar Wasm lazily in the shared worker and matches per-line tokens', async ({ page }) => {
+  test.setTimeout(180000);
+  const requests = [];
+  page.on('request', request => requests.push(new URL(request.url()).pathname));
+  await page.goto('/');
+  await expect(page.locator('#status')).toContainText('Ready', { timeout: 60000 });
+  const changedLine = '    let changed = "x";';
+  const changed = `fn main() {\n${changedLine}\n    // note\n}\n`;
+  const result = await page.evaluate(async changedLine => {
     const { LineHighlighter } = await import('/index.js');
     const source = 'fn main() {\n    let value = 1;\n    // note\n}\n';
-    const changedLine = '    let changed = "x";';
-    const changed = `fn main() {\n${changedLine}\n    // note\n}\n`;
-    const expected = (await window.renderer.highlight(changed, 'rust', { grammar: true })).tokens;
     const highlighter = new LineHighlighter('rust');
     await highlighter.setText(source);
     await highlighter.edit(1, 1, [changedLine]);
@@ -39,11 +51,13 @@ test('LineHighlighter uses the shared worker Wasm and matches per-line grammar t
     await highlighter.free();
     let rejected = false;
     try { await highlighter.tokens(0, 1); } catch { rejected = true; }
-    return { partial, tokens, expected, rejected };
-  });
-  expect(result.tokens).toEqual(perLine(result.expected));
+    return { partial, tokens, rejected };
+  }, changedLine);
+  // The highlighter, not the renderer, fetched the grammar module, and in the same worker.
+  expect(requests.some(path => path.startsWith('/pkg-grammars/'))).toBe(true);
+  expect(page.workers()).toHaveLength(1);
   expect(result.partial.some(line => line.length === 1 && line[0].light === '#24292f')).toBe(true);
   expect(result.rejected).toBe(true);
-  // The highlighter used the renderer's shared worker instead of starting another Wasm instance.
-  expect(page.workers()).toHaveLength(1);
+  const expected = await page.evaluate(async changed => (await window.renderer.highlight(changed, 'rust', { grammar: true })).tokens, changed);
+  expect(result.tokens).toEqual(perLine(expected));
 });
