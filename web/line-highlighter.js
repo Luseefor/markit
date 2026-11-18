@@ -69,7 +69,7 @@ export class LineHighlighter {
     this.#disposed = true;
     try {
       await this.#ready;
-      await this.#engine.call(this, 'lineFree', { id: this.#id });
+      await this.#engine.call(this, 'lineFree', { highlighter: this.#id });
     } catch {
       // A failed load or a closed worker has nothing left to free.
     }
