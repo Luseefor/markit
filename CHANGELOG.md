@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Export `LineHighlighter` from `@markit/web`, backed by the renderer's shared Wasm worker or in-process instance, with `setText`, `edit`, `tokens`, `setBudget`, `advance`, and `free`/`dispose`.
+- Include the grammar highlighter in the web Wasm build by default so the package ships the incremental editor API.
+
 ## 0.2.0
 
 - Add `LineHighlighter`, an incremental grammar highlighter for editors, with a line parse budget, `set_budget`, and `advance` for idle catch-up.

@@ -77,6 +77,32 @@ export class MarkitRenderer {
   refreshImages(): void;
   destroy(): void;
 }
+/** Incremental grammar highlighting for editors. It uses the same shared worker,
+ * Wasm instance, and preload path as `MarkitRenderer`; pass the same `workerURL`,
+ * `worker`, and `wasm` options to share an instance. Lines split on `\n` only,
+ * and tokens cover a line without its ending. The package's Wasm build includes
+ * the grammar highlighter. */
+export class LineHighlighter {
+  /** `language` names a grammar, for example `"rust"` or `"ts"`. */
+  constructor(language: string, options?: Pick<MarkitOptions, 'workerURL' | 'worker' | 'wasm'>);
+  /** Replaces the whole text. A `\r` before a `\n` is part of that line's ending. */
+  setText(text: string): Promise<void>;
+  /** Replaces `removedLines` lines at `startLine` with `inserted`. Inserted entries
+   * carry no line endings; an entry containing `\n` becomes several lines. */
+  edit(startLine: number, removedLines: number, inserted: string[]): Promise<void>;
+  /** Tokens for the lines in `startLine..endLine`, one list per line, without endings.
+   * Lines past the parse budget come back as plain tokens. */
+  tokens(startLine: number, endLine: number): Promise<CodeToken[][]>;
+  /** Sets how many lines one `tokens` call may parse. The default is 2,000. */
+  setBudget(budget: number): Promise<void>;
+  /** Parses up to `maxLines` more lines; resolves true while work remains. */
+  advance(maxLines: number): Promise<boolean>;
+  /** Releases the native highlighter. Safe to call more than once. */
+  free(): Promise<void>;
+  /** Frees the native highlighter. */
+  dispose(): Promise<void>;
+}
+
 /** Terminates the shared workers. Live renderers start a new one on their next request. */
 export function terminateMarkitWorkers(): void;
 /** Starts the shared worker (or, with `worker: 'inline'`, the in-process Wasm) ahead of the first render. */

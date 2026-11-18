@@ -78,6 +78,9 @@ const resync = () => Object.assign(new Error('Markit stream out of sync'), { cod
 export function createMarkitCore(wasm) {
   /** stream id -> { stream, previous, flavor } */
   const streams = new Map();
+  /** highlighter id -> wasm LineHighlighter */
+  const highlighters = new Map();
+  let nextHighlighter = 0;
   const release = id => {
     streams.get(id)?.stream.free();
     streams.delete(id);
@@ -107,12 +110,52 @@ export function createMarkitCore(wasm) {
     entry.previous += delta;
     return decodeWebPatch(packed);
   };
+  const highlighter = data => {
+    const line = highlighters.get(data.highlighter);
+    if (!line) throw new Error('Closed line highlighter');
+    return line;
+  };
+  const handleLine = data => {
+    switch (data.type) {
+      case 'lineNew': {
+        if (typeof wasm.LineHighlighter !== 'function') {
+          throw new Error('This Wasm build has no LineHighlighter; build it with grammars');
+        }
+        const id = ++nextHighlighter;
+        highlighters.set(id, new wasm.LineHighlighter(data.language));
+        return id;
+      }
+      case 'lineSetText':
+        highlighter(data).setText(data.text);
+        return undefined;
+      case 'lineEdit':
+        highlighter(data).edit(data.startLine, data.removedLines, data.inserted);
+        return undefined;
+      case 'lineTokens':
+        return JSON.parse(highlighter(data).tokens(data.startLine, data.endLine));
+      case 'lineSetBudget':
+        highlighter(data).setBudget(data.budget);
+        return undefined;
+      case 'lineAdvance':
+        return highlighter(data).advance(data.maxLines);
+      case 'lineFree': {
+        const line = highlighters.get(data.highlighter);
+        if (line) { highlighters.delete(data.highlighter); line.free(); }
+        return undefined;
+      }
+      default:
+        throw new Error(`Unknown line highlighter request: ${data.type}`);
+    }
+  };
   const handle = data => {
     if (data.type === 'release') { release(data.stream); return undefined; }
     if (data.type === 'highlight') {
       if (data.grammar) return { result: JSON.parse(wasm.highlightGrammar(data.source, data.language)), transfers: [] };
       const ranges = wasm.highlightCodePacked(data.source, data.language);
       return { result: ranges, transfers: [ranges.buffer] };
+    }
+    if (typeof data.type === 'string' && data.type.startsWith('line')) {
+      return { result: handleLine(data), transfers: [] };
     }
     try {
       const patch = render(data);
@@ -123,5 +166,5 @@ export function createMarkitCore(wasm) {
       throw error;
     }
   };
-  return { handle, streams: () => streams.size };
+  return { handle, streams: () => streams.size, highlighters: () => highlighters.size };
 }

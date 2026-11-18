@@ -9,6 +9,7 @@ import { StreamHold } from './stream-hold.js';
 import { copyMath } from './copy-text.js';
 import { MathSelection } from './math-selection.js';
 export { preloadMarkit, terminateMarkitWorkers } from './engine.js';
+export { LineHighlighter } from './line-highlighter.js';
 
 const SECTIONS = 'section[data-markit-code]';
 const within = (node, selector) => (node.matches(selector) ? [node] : node.querySelectorAll(selector));

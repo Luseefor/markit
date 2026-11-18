@@ -6,7 +6,7 @@ let memory;
 const ready = init().then(exports => { memory = exports.memory; });
 const core = createMarkitCore(wasm);
 /** Diagnostics for tests and benchmarks: live streams and Wasm linear memory. */
-self.markitStats = () => ({ streams: core.streams(), wasmMemory: memory?.buffer.byteLength ?? 0 });
+self.markitStats = () => ({ streams: core.streams(), lineHighlighters: core.highlighters(), wasmMemory: memory?.buffer.byteLength ?? 0 });
 
 self.onmessage = async ({ data }) => {
   const { id } = data;
